@@ -16,6 +16,7 @@ from scrapers.base import (
     compute_landed_isk,
     detect_target_gpu,
     extract_specs,
+    fetch_rendered_html,
     is_desktop_pc,
     make_product_id,
     parse_price,
@@ -364,10 +365,13 @@ def scrape_kisildalur(fx_rates: dict[str, float]) -> tuple[list[Product], StoreR
             "https://kd.is/vorur/tolvur/bordtolvur/leikjatolvur",
             "https://kd.is/vorur/tolvur/bordtolvur",
         ]:
-            resp = requests.get(url, headers=DEFAULT_HEADERS, timeout=15)
-            if resp.status_code != 200:
-                continue
-            soup = BeautifulSoup(resp.text, "lxml")
+            html = fetch_rendered_html(url)
+            if not html:
+                resp = requests.get(url, headers=DEFAULT_HEADERS, timeout=15)
+                if resp.status_code != 200:
+                    continue
+                html = resp.text
+            soup = BeautifulSoup(html, "lxml")
             for card in soup.select(".product, .product-card, article"):
                 link_el = card.select_one("a[href]")
                 if not link_el:

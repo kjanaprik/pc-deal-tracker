@@ -34,6 +34,8 @@ jobs:
           BESTBUY_API_KEY: ${{ secrets.BESTBUY_API_KEY }}
           RAINFOREST_API_KEY: ${{ secrets.RAINFOREST_API_KEY }}
           SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: python scripts/scrape_all.py
 
       - name: Check watchlist & send email alerts

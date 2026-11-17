@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -85,6 +86,38 @@ def make_product_id(store: str, url: str) -> str:
     clean_url = url.split("?")[0].rstrip("/").lower()
     raw = f"{store.lower()}::{clean_url}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def fetch_rendered_html(url: str, wait_ms: int = 2500) -> Optional[str]:
+    """
+    Fetch JS-rendered HTML using Cloudflare Browser Rendering REST API
+    when CF_ACCOUNT_ID and CF_API_TOKEN are set.
+    """
+    cf_account = os.getenv("CF_ACCOUNT_ID", "").strip()
+    cf_token = os.getenv("CF_API_TOKEN", "").strip()
+    if not (cf_account and cf_token):
+        return None
+    try:
+        endpoint = f"https://api.cloudflare.com/client/v4/accounts/{cf_account}/browser-rendering/content"
+        resp = requests.post(
+            endpoint,
+            headers={
+                "Authorization": f"Bearer {cf_token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "url": url,
+                "gotoOptions": {"waitUntil": "networkidle2", "timeout": 25000},
+                "waitForTimeout": wait_ms,
+            },
+            timeout=35,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("result") or None
+    except Exception:
+        pass
+    return None
 
 
 def fetch_fx_rates() -> dict[str, float]:
