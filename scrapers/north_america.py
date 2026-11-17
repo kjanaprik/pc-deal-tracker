@@ -15,6 +15,7 @@ from scrapers.base import (
     compute_landed_isk,
     detect_target_gpu,
     extract_specs,
+    fetch_rendered_html,
     is_desktop_pc,
     make_product_id,
     parse_price,
@@ -232,13 +233,22 @@ def _scrape_via_scraperapi_or_direct(
             else:
                 resp = requests.get(url, headers=DEFAULT_HEADERS, timeout=15)
 
+            html = None
             if resp.status_code in (403, 429, 503):
-                blocked = True
-                continue
-            if resp.status_code != 200:
+                html = fetch_rendered_html(url)
+                if not html:
+                    blocked = True
+                    continue
+            elif resp.status_code == 200:
+                html = resp.text
+                if len(html) < 25000:
+                    rendered = fetch_rendered_html(url)
+                    if rendered:
+                        html = rendered
+            else:
                 continue
 
-            soup = BeautifulSoup(resp.text, "lxml")
+            soup = BeautifulSoup(html, "lxml")
             for card in soup.select(".item-cell, .product-tile, [data-selenium='miniProductPage'], .product"):
                 link_el = card.select_one("a[href]")
                 if not link_el:

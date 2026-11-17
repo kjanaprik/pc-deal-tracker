@@ -15,6 +15,7 @@ from scrapers.base import (
     compute_landed_isk,
     detect_target_gpu,
     extract_specs,
+    fetch_rendered_html,
     is_desktop_pc,
     make_product_id,
     parse_price,
@@ -241,13 +242,22 @@ def _scrape_generic_eu_site(
     blocked = False
     try:
         for url in urls:
+            html = None
             resp = _fetch_with_optional_proxy(url)
             if resp.status_code in (403, 429, 503):
-                blocked = True
+                html = fetch_rendered_html(url)
+                if not html:
+                    blocked = True
+                    continue
+            elif resp.status_code == 200:
+                html = resp.text
+                if len(html) < 25000:
+                    rendered = fetch_rendered_html(url)
+                    if rendered:
+                        html = rendered
+            else:
                 continue
-            if resp.status_code != 200:
-                continue
-            soup = BeautifulSoup(resp.text, "lxml")
+            soup = BeautifulSoup(html, "lxml")
             for card in soup.select(".product, .product-box, .product-card, article"):
                 link_el = card.select_one("a[href]")
                 if not link_el:
