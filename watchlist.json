@@ -1,0 +1,19 @@
+{
+  "watched_ids": [],
+  "rules": [
+    {
+      "name": "RTX 5070 Ti 16GB Deal Alert",
+      "gpu": "RTX 5070 Ti 16GB",
+      "max_landed_isk": 420000,
+      "only_on_sale": false
+    },
+    {
+      "name": "RTX 5080 16GB Black Friday Drop",
+      "gpu": "RTX 5080 16GB",
+      "max_landed_isk": 550000,
+      "only_on_sale": true
+    }
+  ],
+  "notify_on_any_watched_sale": true,
+  "min_price_drop_pct": 3.0
+}

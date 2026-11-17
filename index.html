@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RTX 50-Series Gaming PC Deal Tracker — Iceland &amp; Global</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-badge">RTX 50</span>
+        <div>
+          <h1>Gaming PC Deal Tracker</h1>
+          <p class="subtitle">RTX 5060 Ti 16GB • RTX 5070 Ti 16GB • RTX 5080 16GB — Iceland, EU &amp; US/CA</p>
+        </div>
+      </div>
+      <div class="topbar-meta">
+        <span id="bf-countdown" class="pill pill-accent">Black Friday 2026</span>
+        <span id="fx-pill" class="pill">FX: Loading...</span>
+        <span id="updated-pill" class="pill">Updated: —</span>
+        <button id="watchlist-btn" class="btn btn-primary">
+          ★ Watchlist (<span id="watchlist-count">0</span>)
+        </button>
+        <button id="status-btn" class="btn btn-ghost">Store Status</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <aside class="filters-panel">
+      <div class="panel-header">
+        <h2>Filters</h2>
+        <button id="reset-filters" class="btn-link">Reset</button>
+      </div>
+
+      <div class="filter-group">
+        <label for="search-input">Search</label>
+        <input id="search-input" type="search" placeholder="e.g. 9800X3D, Legion, ASUS..." />
+      </div>
+
+      <div class="filter-group">
+        <label>GPU (16GB)</label>
+        <div class="chip-group" id="gpu-chips">
+          <button class="chip active" data-gpu="RTX 5060 Ti 16GB">5060 Ti 16GB</button>
+          <button class="chip active" data-gpu="RTX 5070 Ti 16GB">5070 Ti 16GB</button>
+          <button class="chip active" data-gpu="RTX 5080 16GB">5080 16GB</button>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <label for="shipping-filter">Shipping to Iceland</label>
+        <select id="shipping-filter">
+          <option value="all">All Stores</option>
+          <option value="Local">Iceland Only (Local)</option>
+          <option value="Direct">Ships Direct to Iceland (IS + EU + B&amp;H/Amazon)</option>
+          <option value="Forwarder Required">Forwarder Required (US/CA)</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="store-filter">Store</label>
+        <select id="store-filter">
+          <option value="all">All Stores</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="cpu-filter">CPU Brand</label>
+        <select id="cpu-filter">
+          <option value="all">All CPUs</option>
+          <option value="AMD">AMD Ryzen</option>
+          <option value="Intel">Intel Core</option>
+        </select>
+      </div>
+
+      <div class="filter-row">
+        <div class="filter-group">
+          <label for="ram-filter">Min RAM</label>
+          <select id="ram-filter">
+            <option value="0">Any</option>
+            <option value="16">16GB+</option>
+            <option value="32">32GB+</option>
+            <option value="64">64GB+</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label for="storage-filter">Min SSD</label>
+          <select id="storage-filter">
+            <option value="0">Any</option>
+            <option value="1000">1TB+</option>
+            <option value="2000">2TB+</option>
+            <option value="4000">4TB+</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <label for="max-price">Max Landed Price: <span id="max-price-label">No limit</span></label>
+        <input id="max-price" type="range" min="200000" max="1200000" step="25000" value="1200000" />
+      </div>
+
+      <div class="filter-toggles">
+        <label class="toggle"><input type="checkbox" id="sale-only" /> On Sale / Price Drop Only</label>
+        <label class="toggle"><input type="checkbox" id="stock-only" checked /> In Stock Only</label>
+        <label class="toggle"><input type="checkbox" id="watched-only" /> Watched PCs Only</label>
+      </div>
+    </aside>
+
+    <section class="results-section">
+      <div class="results-bar">
+        <div id="results-count" class="results-count">Loading deals...</div>
+        <div class="sort-wrap">
+          <label for="sort-select">Sort by</label>
+          <select id="sort-select">
+            <option value="landed_asc">Est. Landed Price (Low → High)</option>
+            <option value="landed_desc">Est. Landed Price (High → Low)</option>
+            <option value="discount_desc">Biggest Sale %</option>
+            <option value="drop_desc">Recent Price Drop</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="deals-grid" class="deals-grid"></div>
+    </section>
+  </main>
+
+  <!-- Watchlist Modal -->
+  <div id="watchlist-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>Your Watchlist &amp; Email Alerts</h3>
+        <button class="modal-close" data-close="watchlist-modal">✕</button>
+      </div>
+      <p class="modal-desc">
+        Starred PCs are saved in your browser immediately. To receive <strong>GitHub Actions email alerts</strong>
+        on price drops or Black Friday sales, copy or commit the updated <code>watchlist.json</code> to your repo.
+      </p>
+      <div id="watchlist-items" class="watchlist-items"></div>
+      <div class="modal-actions">
+        <button id="copy-watchlist" class="btn btn-primary">Copy watchlist.json</button>
+        <a id="edit-github-watchlist" class="btn btn-ghost" href="https://github.com" target="_blank" rel="noopener">
+          Edit on GitHub →
+        </a>
+      </div>
+      <pre id="watchlist-json-preview" class="code-preview"></pre>
+    </div>
+  </div>
+
+  <!-- Store Status Modal -->
+  <div id="status-modal" class="modal hidden">
+    <div class="modal-card modal-wide">
+      <div class="modal-head">
+        <h3>Store Scraper Status &amp; Iceland Shipping Guide</h3>
+        <button class="modal-close" data-close="status-modal">✕</button>
+      </div>
+      <p class="modal-desc">
+        Landed ISK estimates for foreign stores deduct local EU/UK VAT where applicable and add estimated heavy-PC freight + 24% Icelandic VAT + 2.500 ISK customs clearance.
+      </p>
+      <div id="store-status-table"></div>
+    </div>
+  </div>
+
+  <!-- Price History Modal -->
+  <div id="history-modal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="history-title">Price History</h3>
+        <button class="modal-close" data-close="history-modal">✕</button>
+      </div>
+      <div id="history-chart"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
