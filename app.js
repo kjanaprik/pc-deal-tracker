@@ -119,19 +119,36 @@ function populateStores() {
 }
 
 function populateDynamicFilters() {
-  const cpuSel = document.getElementById("cpu-model-filter");
-  const cpuCounts = {};
+  populateCpuModels();
+
   const brandSel = document.getElementById("brand-filter");
   const brandCounts = {};
-
   for (const p of allProducts) {
-    if (p.cpu && p.cpu !== "Unknown") {
-      cpuCounts[p.cpu] = (cpuCounts[p.cpu] || 0) + 1;
-    }
     const b = p.brand || "Custom / Prebuilt";
     brandCounts[b] = (brandCounts[b] || 0) + 1;
   }
+  for (const brand of Object.keys(brandCounts).sort()) {
+    const opt = document.createElement("option");
+    opt.value = brand;
+    opt.textContent = `${brand} (${brandCounts[brand]})`;
+    brandSel.appendChild(opt);
+  }
+}
 
+function populateCpuModels() {
+  const cpuBrand = document.getElementById("cpu-filter").value;
+  const cpuSel = document.getElementById("cpu-model-filter");
+  const prevValue = cpuSel.value;
+
+  const cpuCounts = {};
+  for (const p of allProducts) {
+    if (cpuBrand !== "all" && p.cpu_brand !== cpuBrand) continue;
+    if (p.cpu && p.cpu !== "Unknown") {
+      cpuCounts[p.cpu] = (cpuCounts[p.cpu] || 0) + 1;
+    }
+  }
+
+  cpuSel.innerHTML = `<option value="all">All Models</option>`;
   for (const cpu of Object.keys(cpuCounts).sort()) {
     const opt = document.createElement("option");
     opt.value = cpu;
@@ -139,12 +156,7 @@ function populateDynamicFilters() {
     cpuSel.appendChild(opt);
   }
 
-  for (const brand of Object.keys(brandCounts).sort()) {
-    const opt = document.createElement("option");
-    opt.value = brand;
-    opt.textContent = `${brand} (${brandCounts[brand]})`;
-    brandSel.appendChild(opt);
-  }
+  cpuSel.value = cpuCounts[prevValue] ? prevValue : "all";
 }
 
 function saveLocalWatchlist() {
@@ -397,7 +409,12 @@ function bindEvents() {
     });
   });
 
-  ["search-input", "shipping-filter", "store-filter", "cpu-filter", "cpu-model-filter", "brand-filter",
+  document.getElementById("cpu-filter").addEventListener("change", () => {
+    populateCpuModels();
+    render();
+  });
+
+  ["search-input", "shipping-filter", "store-filter", "cpu-model-filter", "brand-filter",
    "ram-filter", "storage-filter", "sale-only", "stock-only", "watched-only", "sort-select"].forEach((id) => {
     document.getElementById(id).addEventListener("input", render);
     document.getElementById(id).addEventListener("change", render);
@@ -415,6 +432,7 @@ function bindEvents() {
     document.getElementById("shipping-filter").value = "all";
     document.getElementById("store-filter").value = "all";
     document.getElementById("cpu-filter").value = "all";
+    populateCpuModels();
     document.getElementById("cpu-model-filter").value = "all";
     document.getElementById("brand-filter").value = "all";
     document.getElementById("ram-filter").value = "0";
