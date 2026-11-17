@@ -209,7 +209,7 @@ def scrape_overclockers_uk(fx_rates: dict[str, float]) -> tuple[list[Product], S
                     ships_to_iceland="Direct",
                     image_url=img_url,
                     description=card.get_text(" ", strip=True),
-                    notes="Ships to Iceland via DHL; 20% UK VAT removed at checkout",
+                    notes="Ships to Iceland via DHL (20% UK VAT removed); verify live checkout as OCUK occasionally pauses non-UK shipping",
                 )
                 if prod:
                     products[prod.id] = prod
@@ -397,6 +397,24 @@ def scrape_all_europe(fx_rates: dict[str, float]) -> tuple[list[Product], list[S
             local_vat=0.19,
             fx_rates=fx_rates,
             notes="German builder with European shipping",
+        ),
+        _scrape_generic_eu_site(
+            store="Alternate.de",
+            urls=["https://www.alternate.de/Gaming-PC"],
+            base_url="https://www.alternate.de",
+            currency="EUR",
+            local_vat=0.0,
+            fx_rates=fx_rates,
+            notes="Germany domestic; requires parcel forwarder (e.g. Mailboxde / ShipGerman)",
+        ),
+        _scrape_generic_eu_site(
+            store="Cyberport.de",
+            urls=["https://www.cyberport.de/pc-und-zubehoer/pc-systeme/gaming-pc.html"],
+            base_url="https://www.cyberport.de",
+            currency="EUR",
+            local_vat=0.0,
+            fx_rates=fx_rates,
+            notes="DE/AT domestic; requires parcel forwarder (e.g. Mailboxde / ShipGerman)",
         ),
         _scrape_amazon_eu("Amazon.de", "amazon.de", "EUR", 0.19, fx_rates),
         _scrape_amazon_eu("Amazon.co.uk", "amazon.co.uk", "GBP", 0.20, fx_rates),

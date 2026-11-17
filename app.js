@@ -1,5 +1,38 @@
 const STORAGE_KEY = "pc_deal_tracker_watchlist_v1";
 
+const STORE_DOMAINS = {
+  "Tölvutek": "tolvutek.is",
+  "Tölvutækni": "tolvutaekni.is",
+  "Computer.is": "computer.is",
+  "Elko": "elko.is",
+  "Tölvulistinn": "tl.is",
+  "Kísildalur": "kd.is",
+  "Memory PC": "memorypc.de",
+  "Overclockers UK": "overclockers.co.uk",
+  "Caseking": "caseking.de",
+  "Computeruniverse": "computeruniverse.net",
+  "PCSpecialist": "pcspecialist.co.uk",
+  "CSL Computer": "csl-computer.com",
+  "Alternate.de": "alternate.de",
+  "Cyberport.de": "cyberport.de",
+  "Amazon.de": "amazon.de",
+  "Amazon.co.uk": "amazon.co.uk",
+  "Best Buy": "bestbuy.com",
+  "Amazon.com": "amazon.com",
+  "B&H Photo": "bhphotovideo.com",
+  "Newegg": "newegg.com",
+  "Costco": "costco.com",
+  "ORIGIN PC": "originpc.com",
+  "XOTIC PC": "xoticpc.com",
+  "iBUYPOWER": "ibuypower.com",
+  "CyberPowerPC": "cyberpowerpc.com",
+};
+
+function storeLogoUrl(store) {
+  const domain = STORE_DOMAINS[store];
+  return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : "";
+}
+
 let allProducts = [];
 let storeStatuses = [];
 let priceHistory = {};
@@ -165,17 +198,28 @@ function render() {
       ? "Local Icelandic price (incl. 24% VAT)"
       : `Sticker: ${p.price_original} ${p.currency} (Est. landed incl. 24% VAT + shipping)`;
 
+    const logoUrl = storeLogoUrl(p.store);
+    const logoImg = logoUrl
+      ? `<img class="store-logo" src="${logoUrl}" alt="${escapeHtml(p.store)}" loading="lazy" onerror="this.style.display='none'" />`
+      : "";
+
     return `
       <article class="card">
         <div>
+          <div class="card-store-bar">
+            <div class="store-identity">
+              ${logoImg}
+              <span class="store-name">${escapeHtml(p.store)}</span>
+              <span class="store-region">• ${escapeHtml(p.region)}</span>
+            </div>
+            <span class="badge badge-ship">${escapeHtml(p.ships_to_iceland)}</span>
+          </div>
           <div class="card-badges">
             <span class="badge ${gpuBadgeClass(p.gpu)}">${p.gpu}</span>
-            <span class="badge badge-ship">${p.ships_to_iceland}</span>
             ${saleBadge}
             ${dropBadge}
           </div>
           <h3 class="card-title">${escapeHtml(p.title)}</h3>
-          <div class="card-store">${escapeHtml(p.store)} • ${escapeHtml(p.region)}</div>
           <div class="specs-row">
             <span class="spec-pill">CPU: ${escapeHtml(p.cpu)}</span>
             <span class="spec-pill">RAM: ${p.ram_gb ? p.ram_gb + "GB" : "?"}</span>
