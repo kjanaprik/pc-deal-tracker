@@ -91,6 +91,7 @@ def main() -> None:
     payload = {
         "updated_at": now_iso,
         "fx_rates": fx_rates,
+        "fx_source": "Íslandsbanki Mastercard (+2.60% card markup)",
         "total_count": len(enriched_products),
         "stores": [r.to_dict() for r in all_results],
         "products": enriched_products,

@@ -120,8 +120,16 @@ def fetch_rendered_html(url: str, wait_ms: int = 2500) -> Optional[str]:
     return None
 
 
-def fetch_fx_rates() -> dict[str, float]:
-    """Return ISK per 1 unit of currency (e.g. {'USD': 138.5, 'EUR': 149.2, ...})."""
+# Íslandsbanki Mastercard foreign currency markup (2.60% over wholesale/mid rate)
+ISLANDSBANKI_MC_MARKUP = 1.026
+
+
+def fetch_fx_rates(apply_iceland_card_markup: bool = True) -> dict[str, float]:
+    """
+    Return ISK per 1 unit of currency (e.g. {'USD': 138.5, 'EUR': 149.2, ...}).
+    When apply_iceland_card_markup is True, applies Íslandsbanki's 2.60% Mastercard markup.
+    """
+    mult = ISLANDSBANKI_MC_MARKUP if apply_iceland_card_markup else 1.0
     try:
         resp = requests.get("https://open.er-api.com/v6/latest/ISK", timeout=10)
         resp.raise_for_status()
@@ -131,12 +139,12 @@ def fetch_fx_rates() -> dict[str, float]:
         for cur in ("USD", "EUR", "GBP", "CAD"):
             val = rates.get(cur)
             if val and val > 0:
-                result[cur] = round(1.0 / float(val), 2)
+                result[cur] = round((1.0 / float(val)) * mult, 2)
             else:
-                result[cur] = FALLBACK_ISK_PER_UNIT[cur]
+                result[cur] = round(FALLBACK_ISK_PER_UNIT[cur] * mult, 2)
         return result
     except Exception:
-        return dict(FALLBACK_ISK_PER_UNIT)
+        return {k: (1.0 if k == "ISK" else round(v * mult, 2)) for k, v in FALLBACK_ISK_PER_UNIT.items()}
 
 
 def compute_landed_isk(

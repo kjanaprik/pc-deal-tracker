@@ -84,7 +84,7 @@ async function init() {
 
     const fx = deals.fx_rates || {};
     document.getElementById("fx-pill").textContent =
-      `FX: 1€=${fx.EUR || "?"} | 1$=${fx.USD || "?"} | 1£=${fx.GBP || "?"}`;
+      `Íslandsbanki MC (+2.6%): 1€=${fx.EUR || "?"} | 1$=${fx.USD || "?"} | 1£=${fx.GBP || "?"}`;
     document.getElementById("updated-pill").textContent =
       `Updated: ${deals.updated_at ? new Date(deals.updated_at).toLocaleString() : "—"}`;
 
@@ -215,6 +215,8 @@ function getFilteredProducts() {
   filtered.sort((a, b) => {
     if (sortBy === "landed_asc") return a.estimated_landed_isk - b.estimated_landed_isk;
     if (sortBy === "landed_desc") return b.estimated_landed_isk - a.estimated_landed_isk;
+    if (sortBy === "store_asc") return a.price_isk - b.price_isk;
+    if (sortBy === "store_desc") return b.price_isk - a.price_isk;
     if (sortBy === "discount_desc") return (b.discount_pct || 0) - (a.discount_pct || 0);
     if (sortBy === "drop_desc") return (b.price_drop_pct || 0) - (a.price_drop_pct || 0);
     return 0;
@@ -246,8 +248,8 @@ function render() {
     const dropBadge = p.price_drop_pct > 0 ? `<span class="badge badge-drop">▼ -${p.price_drop_pct}%</span>` : "";
     const oldPrice = p.original_price_isk ? `<span class="price-old">${fmtIsk(p.original_price_isk)}</span>` : "";
     const stickerNote = p.region === "Iceland"
-      ? "Local Icelandic price (incl. 24% VAT)"
-      : `Sticker: ${p.price_original} ${p.currency} (Est. landed incl. 24% VAT + shipping)`;
+      ? `Store: ${fmtIsk(p.price_isk)} (Local price incl. 24% VAT)`
+      : `Store: ${p.price_original} ${p.currency} (≈ ${fmtIsk(p.price_isk)} @ Íslandsbanki MC)`;
 
     const logoHtml = storeLogoHtml(p.store);
 
