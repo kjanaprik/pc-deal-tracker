@@ -178,12 +178,20 @@ def scrape_overclockers_uk(fx_rates: dict[str, float]) -> tuple[list[Product], S
                 continue
             soup = BeautifulSoup(resp.text, "lxml")
             for card in soup.select(".product-tile, .product-box, .product-card, .js-product-card, article[data-product-id]"):
-                link_el = card.select_one("a[href*='.html'], a[href]")
+                link_el = card.select_one("a.link.d-block, a[href*='.html'], a[href]")
                 if not link_el:
                     continue
                 full_url = urljoin("https://www.overclockers.co.uk", link_el.get("href", ""))
-                title_el = card.select_one("h2, h3, .product-title, .h6, [data-qa='product-title']") or link_el
-                title = title_el.get_text(" ", strip=True)
+                title_el = card.select_one("a.link.d-block, h2, h3, .product-title, .h6, [data-qa='product-title']")
+                title = title_el.get_text(" ", strip=True) if title_el else ""
+                if not title:
+                    for a in card.select("a[href]"):
+                        txt = a.get_text(" ", strip=True)
+                        if len(txt) > 10:
+                            title = txt
+                            break
+                if not title:
+                    continue
                 price_el = card.select_one(".price, [data-qa='product-price'], [class*='price']")
                 price_val = parse_price(price_el.get_text(" ", strip=True) if price_el else card.get_text(" "), "GBP")
                 if not price_val or price_val < 500:

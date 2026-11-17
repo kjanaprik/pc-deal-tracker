@@ -142,47 +142,46 @@ def scrape_tolvutek(fx_rates: dict[str, float]) -> tuple[list[Product], StoreRes
 
 
 def scrape_tolvutaekni(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
-    """Tölvutækni (tolvutaekni.is) - Shopify JSON / predictive search."""
+    """Tölvutækni (tolvutaekni.is) - Shopify collections + predictive search."""
     store = "Tölvutækni"
     t0 = time.monotonic()
     products: dict[str, Product] = {}
     try:
-        for term in SEARCH_TERMS:
-            url = f"https://tolvutaekni.is/search/suggest.json?q={term}&resources[type]=product&resources[limit]=20"
-            resp = requests.get(url, headers=DEFAULT_HEADERS, timeout=15)
-            if resp.status_code == 429:
-                time.sleep(3)
-                resp = requests.get(url, headers=DEFAULT_HEADERS, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-            items = data.get("resources", {}).get("results", {}).get("products", [])
-            for item in items:
+        # 1. Collection JSON (gets all desktop gaming PCs reliably)
+        for handle in ("bordtolvur", "leikjatolvur"):
+            col_url = f"https://tolvutaekni.is/collections/{handle}/products.json?limit=250"
+            r = requests.get(col_url, headers=DEFAULT_HEADERS, timeout=15)
+            if r.status_code != 200:
+                continue
+            for item in r.json().get("products", []):
                 title = item.get("title", "")
-                p_url = urljoin("https://tolvutaekni.is", item.get("url", ""))
-                price_val = parse_price(str(item.get("price", "")), "ISK")
-                # Shopify suggest.json sometimes returns price in ISK or cents; normalize
-                if price_val and price_val < 10000:
-                    price_val *= 100
+                slug = item.get("handle", "")
+                p_url = f"https://tolvutaekni.is/products/{slug}" if slug else "https://tolvutaekni.is"
+                variants = item.get("variants") or []
+                v0 = variants[0] if variants else {}
+                price_val = parse_price(str(v0.get("price", "")), "ISK")
                 if not price_val or price_val < 50000:
                     continue
-                compare_val = parse_price(str(item.get("compare_at_price_max", "")), "ISK")
-                if compare_val and compare_val < 10000:
-                    compare_val *= 100
+                compare_val = parse_price(str(v0.get("compare_at_price") or ""), "ISK")
+                images = item.get("images") or []
+                img_url = images[0].get("src", "") if images else ""
+                body_text = BeautifulSoup(item.get("body_html") or "", "lxml").get_text(" ", strip=True)
+                in_stock = any(bool(v.get("available", True)) for v in variants) if variants else True
 
                 prod = _build_iceland_product(
                     store=store,
                     title=title,
                     url=p_url,
                     price_isk=price_val,
-                    image_url=item.get("image", "") or "",
+                    image_url=img_url,
                     original_price_isk=compare_val,
-                    description=item.get("body", "") or "",
-                    in_stock=bool(item.get("available", True)),
+                    description=body_text,
+                    in_stock=in_stock,
                     fx_rates=fx_rates,
                 )
                 if prod:
                     products[prod.id] = prod
-            time.sleep(1.5)
+            time.sleep(0.5)
 
         return list(products.values()), StoreResult(
             store=store, region="Iceland", ships_to_iceland="Local",

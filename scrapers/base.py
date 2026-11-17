@@ -202,11 +202,12 @@ NON_DESKTOP_KEYWORDS = (
 
 def is_desktop_pc(title: str, extra_text: str = "") -> bool:
     """Return True if the listing is a desktop gaming PC rather than a laptop or standalone GPU."""
-    combined = f"{title} {extra_text}".lower()
+    title_lower = title.lower()
     for bad in NON_DESKTOP_KEYWORDS:
-        if bad in combined:
+        if bad in title_lower:
             return False
 
+    combined = f"{title} {extra_text}".lower()
     # Standalone GPU titles usually start with brand + GeForce RTX 50xx without any CPU/RAM/SSD
     has_cpu = bool(re.search(r"(ryzen|core\s*ultra|i[579][-\s]\d|intel|amd|r[579][-\s]\d{4})", combined))
     has_ram_or_ssd = bool(re.search(r"(\b(?:16|32|64|128)\s*gb\s*(?:ddr|ram|vinnslu)|\b[124]\s*tb\s*(?:ssd|nvme|m\.2)|\bpc\b|\bleikjatölva\b|\bleikjaturn\b|\bborðtölva\b|\bdesktop\b|\btower\b)", combined))

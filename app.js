@@ -62,11 +62,19 @@ async function init() {
 
 function populateStores() {
   const sel = document.getElementById("store-filter");
-  const stores = [...new Set(allProducts.map((p) => p.store))].sort();
-  for (const s of stores) {
+  const counts = {};
+  for (const p of allProducts) {
+    counts[p.store] = (counts[p.store] || 0) + 1;
+  }
+  const allStoreNames = storeStatuses.length
+    ? storeStatuses.map((s) => s.store)
+    : [...new Set(allProducts.map((p) => p.store))];
+
+  for (const s of allStoreNames) {
     const opt = document.createElement("option");
     opt.value = s;
-    opt.textContent = s;
+    const c = counts[s] || 0;
+    opt.textContent = `${s} (${c})`;
     sel.appendChild(opt);
   }
 }
