@@ -66,12 +66,27 @@
         </select>
       </div>
 
+      <div class="filter-row">
+        <div class="filter-group">
+          <label for="cpu-filter">CPU Brand</label>
+          <select id="cpu-filter">
+            <option value="all">All CPUs</option>
+            <option value="AMD">AMD Ryzen</option>
+            <option value="Intel">Intel Core</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label for="cpu-model-filter">CPU Model</label>
+          <select id="cpu-model-filter">
+            <option value="all">All Models</option>
+          </select>
+        </div>
+      </div>
+
       <div class="filter-group">
-        <label for="cpu-filter">CPU Brand</label>
-        <select id="cpu-filter">
-          <option value="all">All CPUs</option>
-          <option value="AMD">AMD Ryzen</option>
-          <option value="Intel">Intel Core</option>
+        <label for="brand-filter">Computer Brand</label>
+        <select id="brand-filter">
+          <option value="all">All Brands</option>
         </select>
       </div>
 
@@ -83,12 +98,14 @@
             <option value="16">16GB+</option>
             <option value="32">32GB+</option>
             <option value="64">64GB+</option>
+            <option value="128">128GB+</option>
           </select>
         </div>
         <div class="filter-group">
-          <label for="storage-filter">Min SSD</label>
+          <label for="storage-filter">Min Disk Space</label>
           <select id="storage-filter">
             <option value="0">Any</option>
+            <option value="500">500GB+</option>
             <option value="1000">1TB+</option>
             <option value="2000">2TB+</option>
             <option value="4000">4TB+</option>
