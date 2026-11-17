@@ -79,8 +79,8 @@ def scrape_tolvutek(fx_rates: dict[str, float]) -> tuple[list[Product], StoreRes
     t0 = time.monotonic()
     products: dict[str, Product] = {}
     try:
-        for term in SEARCH_TERMS:
-            url = f"https://tolvutek.is/shop?search={term}"
+        for term in ("leikjaturn", "rtx 5070 ti", "rtx 5080", "rtx 5060 ti"):
+            url = f"https://tolvutek.is/shop?search={term.replace(' ', '+')}"
             resp = requests.get(url, headers=DEFAULT_HEADERS, timeout=15)
             resp.raise_for_status()
             soup = BeautifulSoup(resp.text, "lxml")
@@ -250,54 +250,64 @@ def scrape_computer_is(fx_rates: dict[str, float]) -> tuple[list[Product], Store
 
 
 def scrape_elko(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
-    """Elko (elko.is) - Next.js / Algolia search."""
+    """Elko (elko.is) - Next.js / Algolia prod_elko_products."""
     store = "Elko"
     t0 = time.monotonic()
     products: dict[str, Product] = {}
     try:
-        # Discover Algolia search key from elko.is HTML if available, else parse rendered HTML
         resp = requests.get("https://elko.is/leit?q=5070", headers=DEFAULT_HEADERS, timeout=15)
         resp.raise_for_status()
         html = resp.text
 
-        # Try extracting Algolia credentials embedded in Next.js bundle
-        app_id_m = re.search(r'["\']([A-Z0-9]{10})["\']', html)
-        api_key_m = re.search(r'["\']([a-f0-9]{32})["\']', html)
-        if app_id_m and api_key_m:
-            app_id = "9LGLXP4YCH" if "9LGLXP4YCH" in html else app_id_m.group(1)
-            api_key = api_key_m.group(1)
-            alg_url = f"https://{app_id}-dsn.algolia.net/1/indexes/*/queries"
-            alg_headers = {
-                "X-Algolia-Application-Id": app_id,
-                "X-Algolia-API-Key": api_key,
-                "Content-Type": "application/json",
-            }
-            for term in SEARCH_TERMS:
-                payload = {"requests": [{"indexName": "elko_is_products", "params": f"query=rtx+{term}&hitsPerPage=30"}]}
-                r = requests.post(alg_url, headers=alg_headers, json=payload, timeout=10)
-                if r.status_code == 200:
-                    for res in r.json().get("results", []):
-                        for hit in res.get("hits", []):
-                            title = hit.get("name") or hit.get("title") or ""
-                            slug = hit.get("slug") or hit.get("url") or ""
-                            p_url = urljoin("https://elko.is/", slug.lstrip("/")) if slug else "https://elko.is"
-                            price = hit.get("price") or hit.get("specialPrice")
-                            old_price = hit.get("oldPrice") or hit.get("regularPrice")
-                            if not price:
-                                continue
-                            prod = _build_iceland_product(
-                                store=store,
-                                title=title,
-                                url=p_url,
-                                price_isk=float(price),
-                                image_url=hit.get("image", "") or "",
-                                original_price_isk=float(old_price) if old_price else None,
-                                description=str(hit.get("description", "")),
-                                in_stock=bool(hit.get("inStock", True)),
-                                fx_rates=fx_rates,
-                            )
-                            if prod:
-                                products[prod.id] = prod
+        app_id_m = re.search(r'"algoliaApplicationId":"([^"]+)"', html)
+        api_key_m = re.search(r'"algoliaApiKey":"([^"]+)"', html)
+        prefix_m = re.search(r'"algoliaEnvPrefix":"([^"]+)"', html)
+
+        app_id = app_id_m.group(1) if app_id_m else "9LGLXP4YCH"
+        api_key = api_key_m.group(1) if api_key_m else "dfdb7b6d367c3580a1465cc307b31cfd"
+        index_name = f"{prefix_m.group(1)}_products" if prefix_m else "prod_elko_products"
+
+        alg_url = f"https://{app_id}-dsn.algolia.net/1/indexes/*/queries"
+        alg_headers = {
+            "X-Algolia-Application-Id": app_id,
+            "X-Algolia-API-Key": api_key,
+            "Content-Type": "application/json",
+        }
+        for term in ("5060", "5070", "5080", "leikjaturn"):
+            payload = {"requests": [{"indexName": index_name, "params": f"query={term}&hitsPerPage=40"}]}
+            r = requests.post(alg_url, headers=alg_headers, json=payload, timeout=10)
+            if r.status_code != 200:
+                continue
+            for res in r.json().get("results", []):
+                for hit in res.get("hits", []):
+                    p_obj = hit.get("product") or {}
+                    title = hit.get("name") or p_obj.get("name") or ""
+                    slug = p_obj.get("slug") or hit.get("slug") or ""
+                    p_url = f"https://elko.is/vorur/{slug}" if slug else "https://elko.is"
+
+                    price_obj = (hit.get("listings") or {}).get("webshop", {}).get("price", {})
+                    reg_price = price_obj.get("price")
+                    disc_price = price_obj.get("discountedPrice")
+                    active_price = disc_price if disc_price else reg_price
+                    if not active_price:
+                        continue
+
+                    img_obj = hit.get("firstImage") or {}
+                    img_url = img_obj.get("url", "") if isinstance(img_obj, dict) else ""
+
+                    prod = _build_iceland_product(
+                        store=store,
+                        title=title,
+                        url=p_url,
+                        price_isk=float(active_price),
+                        image_url=img_url,
+                        original_price_isk=float(reg_price) if disc_price and reg_price and float(reg_price) > float(disc_price) else None,
+                        description=str(p_obj.get("shortDescription", "")),
+                        in_stock=bool(hit.get("inStock", True)),
+                        fx_rates=fx_rates,
+                    )
+                    if prod:
+                        products[prod.id] = prod
 
         return list(products.values()), StoreResult(
             store=store, region="Iceland", ships_to_iceland="Local",

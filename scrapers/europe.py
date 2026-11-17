@@ -162,8 +162,10 @@ def scrape_overclockers_uk(fx_rates: dict[str, float]) -> tuple[list[Product], S
     try:
         for url in [
             "https://www.overclockers.co.uk/pc-systems/gaming-pcs",
+            "https://www.overclockers.co.uk/pc-systems/gaming-pcs?page=2",
             "https://www.overclockers.co.uk/search?sSearch=RTX+5070+Ti+PC",
             "https://www.overclockers.co.uk/search?sSearch=RTX+5080+PC",
+            "https://www.overclockers.co.uk/search?sSearch=RTX+5060+Ti+PC",
         ]:
             resp = _fetch_with_optional_proxy(url)
             if resp.status_code == 403:
@@ -175,15 +177,15 @@ def scrape_overclockers_uk(fx_rates: dict[str, float]) -> tuple[list[Product], S
             if resp.status_code != 200:
                 continue
             soup = BeautifulSoup(resp.text, "lxml")
-            for card in soup.select(".product-card, .js-product-card, article[data-product-id]"):
-                link_el = card.select_one("a[href]")
+            for card in soup.select(".product-tile, .product-box, .product-card, .js-product-card, article[data-product-id]"):
+                link_el = card.select_one("a[href*='.html'], a[href]")
                 if not link_el:
                     continue
                 full_url = urljoin("https://www.overclockers.co.uk", link_el.get("href", ""))
-                title_el = card.select_one("h2, h3, .product-title, [data-qa='product-title']") or link_el
+                title_el = card.select_one("h2, h3, .product-title, .h6, [data-qa='product-title']") or link_el
                 title = title_el.get_text(" ", strip=True)
-                price_el = card.select_one(".price, [data-qa='product-price']")
-                price_val = parse_price(price_el.get_text(" ", strip=True) if price_el else "", "GBP")
+                price_el = card.select_one(".price, [data-qa='product-price'], [class*='price']")
+                price_val = parse_price(price_el.get_text(" ", strip=True) if price_el else card.get_text(" "), "GBP")
                 if not price_val or price_val < 500:
                     continue
                 img_el = card.select_one("img")
