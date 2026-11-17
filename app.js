@@ -28,9 +28,14 @@ const STORE_DOMAINS = {
   "CyberPowerPC": "cyberpowerpc.com",
 };
 
-function storeLogoUrl(store) {
+function storeLogoHtml(store) {
   const domain = STORE_DOMAINS[store];
-  return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : "";
+  const initials = store.replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "PC";
+  if (!domain) {
+    return `<span class="store-monogram">${initials}</span>`;
+  }
+  const url = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+  return `<span class="store-logo-wrap"><img class="store-logo" src="${url}" alt="${escapeHtml(store)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex'" /><span class="store-monogram" style="display:none">${initials}</span></span>`;
 }
 
 let allProducts = [];
@@ -232,17 +237,14 @@ function render() {
       ? "Local Icelandic price (incl. 24% VAT)"
       : `Sticker: ${p.price_original} ${p.currency} (Est. landed incl. 24% VAT + shipping)`;
 
-    const logoUrl = storeLogoUrl(p.store);
-    const logoImg = logoUrl
-      ? `<img class="store-logo" src="${logoUrl}" alt="${escapeHtml(p.store)}" loading="lazy" onerror="this.style.display='none'" />`
-      : "";
+    const logoHtml = storeLogoHtml(p.store);
 
     return `
       <article class="card">
         <div>
           <div class="card-store-bar">
             <div class="store-identity">
-              ${logoImg}
+              ${logoHtml}
               <span class="store-name">${escapeHtml(p.store)}</span>
               <span class="store-region">• ${escapeHtml(p.region)}</span>
             </div>

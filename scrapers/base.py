@@ -225,16 +225,21 @@ def extract_specs(title: str, description: str = "") -> dict[str, Any]:
     cpu_patterns = [
         r"(Ryzen\s*[579]\s*\d{4}X3D)",
         r"(Ryzen\s*[579]\s*\d{4}X?)",
+        r"(Ryzen\s*\d{4}X3D)",
+        r"(Ryzen\s*\d{4}X?)",
         r"(R[579][-\s]\d{4}X3D)",
         r"(R[579][-\s]\d{4}X?)",
         r"(Core\s*Ultra\s*[579]\s*\d{3}K?F?)",
         r"(Core\s*i[579][-\s]\d{5}K?F?)",
         r"(i[579][-\s]\d{5}K?F?)",
+        r"\b(U[579])(?:/|\s+\d)",
     ]
     for pat in cpu_patterns:
         m = re.search(pat, text, re.I)
         if m:
             cpu = re.sub(r"\s+", " ", m.group(1)).strip()
+            if cpu.upper() in ("U5", "U7", "U9"):
+                cpu = f"Core Ultra {cpu[1]}"
             break
 
     if "ryzen" in t_lower or cpu.lower().startswith("r"):
@@ -272,7 +277,7 @@ def extract_specs(title: str, description: str = "") -> dict[str, Any]:
         "Lenovo", "ASUS", "ROG", "MSI", "HP", "OMEN", "Acer", "Predator",
         "Alienware", "Corsair", "NZXT", "iBUYPOWER", "CyberPowerPC",
         "Skytech", "ABS", "Memory PC", "Caseking", "PCSpecialist",
-        "Overclockers", "ORIGIN PC", "Kísildalur", "Tölvutek", "Computer.is",
+        "Overclockers", "OcUK", "ORIGIN PC", "Kísildalur", "Tölvutek", "Computer.is",
     ):
         if b.lower() in t_lower:
             brand = b
