@@ -86,19 +86,22 @@ def _build_na_product(
 
 
 def scrape_bestbuy(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
-    """Best Buy (bestbuy.com) - Uses official Best Buy Products API if BESTBUY_API_KEY is set."""
+    """Best Buy (bestbuy.com) - Uses BESTBUY_API_KEY if set, else falls back to web/Cloudflare/ScraperAPI."""
     store = "Best Buy"
     t0 = time.monotonic()
     api_key = os.getenv("BESTBUY_API_KEY", "").strip()
     if not api_key:
-        return [], StoreResult(
+        return _scrape_via_scraperapi_or_direct(
             store=store,
-            region="USA/Canada",
+            urls=[
+                "https://www.bestbuy.com/site/searchpage.jsp?st=gaming+desktop+rtx+5070+ti",
+                "https://www.bestbuy.com/site/searchpage.jsp?st=gaming+desktop+rtx+5080",
+                "https://www.bestbuy.com/site/searchpage.jsp?st=gaming+desktop+rtx+5060+ti",
+            ],
+            base_url="https://www.bestbuy.com",
             ships_to_iceland="Forwarder Required",
-            status="skipped",
-            count=0,
-            error="Set BESTBUY_API_KEY (free at developer.bestbuy.com) in GitHub Secrets",
-            duration_ms=int((time.monotonic() - t0) * 1000),
+            fx_rates=fx_rates,
+            notes="US/CA domestic; requires freight forwarder (e.g. MyUS/ShopUSA)",
         )
 
     products: dict[str, Product] = {}
