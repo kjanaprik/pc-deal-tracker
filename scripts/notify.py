@@ -134,7 +134,7 @@ def send_email(subject: str, html_body: str) -> bool:
         return True
 
     smtp_host = os.getenv("SMTP_HOST", "").strip()
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_port = int((os.getenv("SMTP_PORT") or "587").strip() or "587")
     smtp_user = os.getenv("SMTP_USER", "").strip()
     smtp_pass = os.getenv("SMTP_PASS", "").strip()
 
