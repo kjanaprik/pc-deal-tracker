@@ -207,7 +207,8 @@ def parse_price(text: str, currency_hint: str = "ISK") -> Optional[float]:
 
 def detect_target_gpu(text: str) -> Optional[str]:
     """Match RTX 5060 Ti 16GB, RTX 5070 Ti 16GB, or RTX 5080 16GB."""
-    t_norm = re.sub(r"[\s\-_,]+", " ", text.lower())
+    t_norm = re.sub(r"[™®]", "", text.lower())
+    t_norm = re.sub(r"[\s\-_,]+", " ", t_norm)
 
     if re.search(r"(?:rtx|geforce)\s*5080\b", t_norm):
         return "RTX 5080 16GB"

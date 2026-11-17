@@ -294,6 +294,122 @@ def _scrape_via_scraperapi_or_direct(
         )
 
 
+def scrape_xoticpc(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
+    """XOTIC PC (xoticpc.com) - Shopify JSON API."""
+    store = "XOTIC PC"
+    t0 = time.monotonic()
+    products: dict[str, Product] = {}
+    try:
+        for page in (1, 2):
+            r = requests.get(
+                f"https://xoticpc.com/products.json?limit=250&page={page}",
+                headers=DEFAULT_HEADERS,
+                timeout=15,
+            )
+            if r.status_code != 200:
+                break
+            items = r.json().get("products", [])
+            if not items:
+                break
+            for item in items:
+                title = item.get("title", "")
+                slug = item.get("handle", "")
+                p_url = f"https://xoticpc.com/products/{slug}" if slug else "https://xoticpc.com"
+                variants = item.get("variants") or []
+                v0 = variants[0] if variants else {}
+                price_val = parse_price(str(v0.get("price") or ""), "USD")
+                if not price_val or price_val < 500:
+                    continue
+                compare_val = parse_price(str(v0.get("compare_at_price") or ""), "USD")
+                images = item.get("images") or []
+                img_url = images[0].get("src", "") if images else ""
+                body_text = BeautifulSoup(item.get("body_html") or "", "lxml").get_text(" ", strip=True)
+                in_stock = any(bool(v.get("available", True)) for v in variants) if variants else True
+
+                prod = _build_na_product(
+                    store=store,
+                    title=title,
+                    url=p_url,
+                    price_usd=price_val,
+                    fx_rates=fx_rates,
+                    ships_to_iceland="Quote Required",
+                    image_url=img_url,
+                    original_price_usd=compare_val if compare_val and compare_val > price_val else None,
+                    description=body_text,
+                    in_stock=in_stock,
+                    notes="Ships internationally to Iceland via custom quote (sales@xoticpc.com)",
+                )
+                if prod:
+                    products[prod.id] = prod
+
+        return list(products.values()), StoreResult(
+            store=store, region="USA/Canada", ships_to_iceland="Quote Required",
+            status="ok", count=len(products), duration_ms=int((time.monotonic() - t0) * 1000)
+        )
+    except Exception as exc:
+        return list(products.values()), StoreResult(
+            store=store, region="USA/Canada", ships_to_iceland="Quote Required",
+            status="error", count=len(products), error=str(exc),
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+
+
+def scrape_cyberpowerpc(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
+    """CyberPowerPC (cyberpowerpc.com) - .system__info cards."""
+    store = "CyberPowerPC"
+    t0 = time.monotonic()
+    products: dict[str, Product] = {}
+    try:
+        r = requests.get("https://www.cyberpowerpc.com/category/gaming-pcs/", headers=DEFAULT_HEADERS, timeout=15)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "lxml")
+        for card in soup.select(".system__info"):
+            link_el = card.select_one("a[href*='/system/']")
+            if not link_el:
+                continue
+            full_url = urljoin("https://www.cyberpowerpc.com", link_el.get("href", ""))
+            title = link_el.get_text(" ", strip=True)
+            if not title:
+                continue
+            card_text = card.get_text(" ", strip=True)
+            import re as _re
+            prices = [_parse_usd(m) for m in _re.findall(r"\$[\d,]+(?:\.\d{2})?", card_text)]
+            prices = [p for p in prices if p and p >= 500]
+            if not prices:
+                continue
+            price_val = min(prices)
+            orig_val = max(prices) if len(prices) > 1 and max(prices) > price_val else None
+
+            prod = _build_na_product(
+                store=store,
+                title=title,
+                url=full_url,
+                price_usd=price_val,
+                fx_rates=fx_rates,
+                ships_to_iceland="Forwarder Required",
+                original_price_usd=orig_val,
+                description=card_text,
+                notes="US/CA only; requires freight forwarder (UK branch ships EU on request)",
+            )
+            if prod:
+                products[prod.id] = prod
+
+        return list(products.values()), StoreResult(
+            store=store, region="USA/Canada", ships_to_iceland="Forwarder Required",
+            status="ok", count=len(products), duration_ms=int((time.monotonic() - t0) * 1000)
+        )
+    except Exception as exc:
+        return list(products.values()), StoreResult(
+            store=store, region="USA/Canada", ships_to_iceland="Forwarder Required",
+            status="error", count=len(products), error=str(exc),
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+
+
+def _parse_usd(s: str) -> Optional[float]:
+    return parse_price(s, "USD")
+
+
 def scrape_all_north_america(fx_rates: dict[str, float]) -> tuple[list[Product], list[StoreResult]]:
     all_products: list[Product] = []
     results: list[StoreResult] = []
@@ -340,14 +456,7 @@ def scrape_all_north_america(fx_rates: dict[str, float]) -> tuple[list[Product],
             fx_rates=fx_rates,
             notes="Ships internationally to Iceland via custom freight quote",
         ),
-        _scrape_via_scraperapi_or_direct(
-            store="XOTIC PC",
-            urls=["https://xoticpc.com/collections/desktops"],
-            base_url="https://xoticpc.com",
-            ships_to_iceland="Quote Required",
-            fx_rates=fx_rates,
-            notes="Ships internationally to Iceland via custom quote (sales@xoticpc.com)",
-        ),
+        scrape_xoticpc(fx_rates),
         _scrape_via_scraperapi_or_direct(
             store="iBUYPOWER",
             urls=["https://www.ibuypower.com/gaming-pcs"],
@@ -356,14 +465,7 @@ def scrape_all_north_america(fx_rates: dict[str, float]) -> tuple[list[Product],
             fx_rates=fx_rates,
             notes="US/CA only; requires freight forwarder",
         ),
-        _scrape_via_scraperapi_or_direct(
-            store="CyberPowerPC",
-            urls=["https://www.cyberpowerpc.com/category/gaming-pcs/"],
-            base_url="https://www.cyberpowerpc.com",
-            ships_to_iceland="Forwarder Required",
-            fx_rates=fx_rates,
-            notes="US/CA only; requires freight forwarder (UK branch ships EU on request)",
-        ),
+        scrape_cyberpowerpc(fx_rates),
     ]
 
     for prods, res in jobs:
