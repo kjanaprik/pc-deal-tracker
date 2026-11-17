@@ -300,9 +300,15 @@ function openWatchlistModal() {
       const p = allProducts.find((x) => x.id === id);
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;">
         <span>${p ? escapeHtml(p.title) + " (" + escapeHtml(p.store) + ")" : id}</span>
-        <button class="btn-link" onclick="toggleWatch('${id}');openWatchlistModal();">Remove</button>
+        <button class="btn-link" data-remove-watch="${id}">Remove</button>
       </div>`;
     }).join("");
+    container.querySelectorAll("[data-remove-watch]").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        toggleWatch(btn.dataset.removeWatch);
+        openWatchlistModal();
+      })
+    );
   }
 
   const updatedJson = {
@@ -418,6 +424,7 @@ function bindEvents() {
     document.getElementById("sale-only").checked = false;
     document.getElementById("stock-only").checked = true;
     document.getElementById("watched-only").checked = false;
+    document.getElementById("sort-select").value = "landed_asc";
     activeGpus = new Set(["RTX 5060 Ti 16GB", "RTX 5070 Ti 16GB", "RTX 5080 16GB"]);
     document.querySelectorAll("#gpu-chips .chip").forEach((c) => c.classList.add("active"));
     render();

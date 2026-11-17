@@ -166,9 +166,7 @@ def parse_price(text: str, currency_hint: str = "ISK") -> Optional[float]:
 
 def detect_target_gpu(text: str) -> Optional[str]:
     """Match RTX 5060 Ti 16GB, RTX 5070 Ti 16GB, or RTX 5080 16GB."""
-    t = text.lower()
-    # Normalize spaces/hyphens
-    t_norm = re.sub(r"[\s\-_]+", " ", t)
+    t_norm = re.sub(r"[\s\-_,]+", " ", text.lower())
 
     if re.search(r"(?:rtx|geforce)\s*5080\b", t_norm):
         return "RTX 5080 16GB"
@@ -177,12 +175,14 @@ def detect_target_gpu(text: str) -> Optional[str]:
         return "RTX 5070 Ti 16GB"
 
     if re.search(r"(?:rtx|geforce)\s*5060\s*ti\b", t_norm):
-        # Exclude explicit 8GB variants of 5060 Ti
-        if re.search(r"\b8\s*gb\b", t_norm) and not re.search(r"\b16\s*gb\b", t_norm):
+        # Reject 8GB 5060 Ti variants (don't let '16 GB DDR4/DDR5' fool this check)
+        if re.search(r"5060\s*ti\s*8\s*gb\b", t_norm) or re.search(r"8\s*gb\s*gddr", t_norm):
             return None
-        # Require 16GB or accept if VRAM isn't listed (caller can refine with description)
-        if re.search(r"\b16\s*gb\b|\b16g\b", t_norm):
+        if re.search(r"5060\s*ti\s*16\s*gb\b|5060\s*ti\s*16g\b|16\s*gb\s*gddr", t_norm):
             return "RTX 5060 Ti 16GB"
+        # If neither 8GB nor 16GB VRAM is specified, exclude if 8GB appears anywhere near GPU
+        if re.search(r"\b8\s*gb\b", t_norm):
+            return None
         return "RTX 5060 Ti 16GB"
 
     return None
@@ -214,7 +214,7 @@ def is_desktop_pc(title: str, extra_text: str = "") -> bool:
     return has_cpu or has_ram_or_ssd
 
 
-def extract_specs(title: str, description: str = "") -> dict[str, Any]:
+def extract_specs(title: str, description: str = "", store: str = "") -> dict[str, Any]:
     """Extract CPU, RAM, Storage, and Brand from product title + description."""
     text = f"{title} {description}"
     t_lower = text.lower()
@@ -224,11 +224,11 @@ def extract_specs(title: str, description: str = "") -> dict[str, Any]:
     cpu_brand = "Other"
     cpu_patterns = [
         r"(Ryzen\s*[579]\s*\d{4}X3D)",
-        r"(Ryzen\s*[579]\s*\d{4}X?)",
+        r"(Ryzen\s*[579]\s*\d{4}[XF]{0,2})",
         r"(Ryzen\s*\d{4}X3D)",
-        r"(Ryzen\s*\d{4}X?)",
+        r"(Ryzen\s*\d{4}[XF]{0,2})",
         r"(R[579][-\s]\d{4}X3D)",
-        r"(R[579][-\s]\d{4}X?)",
+        r"(R[579][-\s]\d{4}[XF]?)(?!\s*MHz)",
         r"(Core\s*Ultra\s*[579]\s*\d{3}K?F?)",
         r"(Core\s*i[579][-\s]\d{5}K?F?)",
         r"(i[579][-\s]\d{5}K?F?)",
@@ -237,9 +237,13 @@ def extract_specs(title: str, description: str = "") -> dict[str, Any]:
     for pat in cpu_patterns:
         m = re.search(pat, text, re.I)
         if m:
-            cpu = re.sub(r"\s+", " ", m.group(1)).strip()
+            cpu = re.sub(r"[\s\-]+", " ", m.group(1)).strip()
             if cpu.upper() in ("U5", "U7", "U9"):
                 cpu = f"Core Ultra {cpu[1]}"
+            elif re.match(r"^Ryzen\s+7500X3D$", cpu, re.I):
+                cpu = "Ryzen 5 7500X3D"
+            elif re.match(r"^Ryzen\s+(7800X3D|9800X3D|9850X3D)$", cpu, re.I):
+                cpu = f"Ryzen 7 {cpu.split()[-1]}"
             break
 
     if "ryzen" in t_lower or cpu.lower().startswith("r"):
@@ -247,11 +251,12 @@ def extract_specs(title: str, description: str = "") -> dict[str, Any]:
     elif "intel" in t_lower or "core" in t_lower or cpu.lower().startswith("i"):
         cpu_brand = "Intel"
 
-    # RAM extraction (avoid matching 16GB VRAM by looking for DDR4/DDR5/RAM or >= 32GB)
+    # RAM extraction (avoid matching 16GB VRAM by looking for DDR4/DDR5/RAM or RAM: label)
     ram_gb: Optional[int] = None
-    ram_match = re.search(r"\b(16|24|32|48|64|96|128)\s*GB\s*(?:DDR[45]|RAM|vinnsluminni)", text, re.I)
+    ram_match = re.search(r"RAM\s*:\s*(16|24|32|48|64|96|128)\s*GB", text, re.I)
     if not ram_match:
-        # Look for patterns like "32GB / 2TB" or "32GB, 1TB"
+        ram_match = re.search(r"\b(16|24|32|48|64|96|128)\s*GB\s*(?:DDR[45]|RAM|vinnsluminni)", text, re.I)
+    if not ram_match:
         ram_match = re.search(r"\b(32|48|64|96|128)\s*GB\b(?!\s*(?:GDDR|VRAM|RTX))", text, re.I)
     if ram_match:
         ram_gb = int(ram_match.group(1))
@@ -259,17 +264,20 @@ def extract_specs(title: str, description: str = "") -> dict[str, Any]:
     # Storage extraction
     storage_gb: Optional[int] = None
     storage_label = "Unknown"
-    tb_match = re.search(r"\b([1248])\s*TB\b", text, re.I)
-    if tb_match:
-        tb = int(tb_match.group(1))
+    ssd_tb_match = re.search(r"SSD\s*:\s*([1248])\s*TB", text, re.I) or re.search(r"\b([1248])\s*TB\b", text, re.I)
+    if ssd_tb_match:
+        tb = int(ssd_tb_match.group(1))
         storage_gb = tb * 1000
         storage_label = f"{tb}TB NVMe" if "nvme" in t_lower or "m.2" in t_lower else f"{tb}TB SSD"
     else:
-        gb_match = re.search(r"\b(500|512|1000|1024|2000|2048)\s*GB\s*(?:SSD|NVMe|M\.2)", text, re.I)
+        gb_match = (
+            re.search(r"SSD\s*:\s*(500|512|1000|1024|2000|2048|4000)\s*GB", text, re.I)
+            or re.search(r"\b(500|512|1000|1024|2000|2048|4000)\s*GB\s*(?:SSD|NVMe|M\.2)", text, re.I)
+        )
         if gb_match:
             val = int(gb_match.group(1))
             storage_gb = val
-            storage_label = f"{val}GB SSD"
+            storage_label = f"{val // 1000}TB NVMe" if val >= 1000 and val % 1000 == 0 else f"{val}GB SSD"
 
     # Brand extraction
     brand = "Custom / Prebuilt"
@@ -280,8 +288,11 @@ def extract_specs(title: str, description: str = "") -> dict[str, Any]:
         "Overclockers", "OcUK", "ORIGIN PC", "Kísildalur", "Tölvutek", "Computer.is",
     ):
         if b.lower() in t_lower:
-            brand = b
+            brand = "Overclockers" if b in ("Overclockers", "OcUK") else b
             break
+    if brand == "Custom / Prebuilt" and store:
+        if store in ("Memory PC", "Overclockers UK", "Caseking", "PCSpecialist", "CSL Computer"):
+            brand = "Overclockers" if store == "Overclockers UK" else store
 
     return {
         "cpu": cpu,

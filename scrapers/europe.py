@@ -43,7 +43,7 @@ def _build_eu_product(
     if not is_desktop_pc(title, description):
         return None
 
-    specs = extract_specs(title, description)
+    specs = extract_specs(title, description, store=store)
     sticker_isk, landed_isk = compute_landed_isk(
         price_original=price,
         currency=currency,
@@ -109,7 +109,7 @@ def scrape_memorypc(fx_rates: dict[str, float]) -> tuple[list[Product], StoreRes
             if resp.status_code != 200:
                 continue
             soup = BeautifulSoup(resp.text, "lxml")
-            for card in soup.select(".product-box, .card.product-box, .cms-element-product-listing .product-info"):
+            for card in soup.select(".card.product-box, .product-box"):
                 link_el = card.select_one("a.product-name, a.product-image-link, a[href]")
                 if not link_el:
                     continue
@@ -119,7 +119,7 @@ def scrape_memorypc(fx_rates: dict[str, float]) -> tuple[list[Product], StoreRes
                 price_val = parse_price(price_el.get_text(" ", strip=True) if price_el else "", "EUR")
                 if not price_val or price_val < 500:
                     continue
-                old_el = card.select_one(".list-price-price, .product-price-old, del")
+                old_el = card.select_one(".list-price-price, .list-price, .product-price-old, del")
                 old_val = parse_price(old_el.get_text(" ", strip=True), "EUR") if old_el else None
                 img_el = card.select_one("img")
                 img_url = img_el.get("src", "") if img_el else ""
