@@ -248,6 +248,7 @@ body {
 }
 .badge-gpu-5080 { background: rgba(168, 85, 247, 0.2); color: #d8b4fe; }
 .badge-gpu-5070ti { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+.badge-gpu-5070 { background: rgba(14, 165, 233, 0.2); color: #7dd3fc; }
 .badge-gpu-5060ti { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
 .badge-sale { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
 .badge-drop { background: rgba(245, 158, 11, 0.2); color: #fcd34d; }

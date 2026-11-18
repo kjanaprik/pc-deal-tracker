@@ -42,7 +42,7 @@ let allProducts = [];
 let storeStatuses = [];
 let priceHistory = {};
 let repoWatchlist = { watched_ids: [], rules: [], notify_on_any_watched_sale: true, min_price_drop_pct: 3.0 };
-let activeGpus = new Set(["RTX 5060 Ti 16GB", "RTX 5070 Ti 16GB", "RTX 5080 16GB"]);
+let activeGpus = new Set(["RTX 5060 Ti 16GB", "RTX 5070 12GB", "RTX 5070 Ti 16GB", "RTX 5080 16GB"]);
 let localWatchlist = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"));
 
 const fmtIsk = (n) => `${Math.round(n).toLocaleString("de-DE")} ISK`;
@@ -227,7 +227,8 @@ function getFilteredProducts() {
 
 function gpuBadgeClass(gpu) {
   if (gpu.includes("5080")) return "badge-gpu-5080";
-  if (gpu.includes("5070")) return "badge-gpu-5070ti";
+  if (gpu.includes("5070 Ti")) return "badge-gpu-5070ti";
+  if (gpu.includes("5070")) return "badge-gpu-5070";
   return "badge-gpu-5060ti";
 }
 
@@ -445,7 +446,7 @@ function bindEvents() {
     document.getElementById("stock-only").checked = true;
     document.getElementById("watched-only").checked = false;
     document.getElementById("sort-select").value = "landed_asc";
-    activeGpus = new Set(["RTX 5060 Ti 16GB", "RTX 5070 Ti 16GB", "RTX 5080 16GB"]);
+    activeGpus = new Set(["RTX 5060 Ti 16GB", "RTX 5070 12GB", "RTX 5070 Ti 16GB", "RTX 5080 16GB"]);
     document.querySelectorAll("#gpu-chips .chip").forEach((c) => c.classList.add("active"));
     render();
   });

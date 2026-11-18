@@ -216,6 +216,9 @@ def detect_target_gpu(text: str) -> Optional[str]:
     if re.search(r"(?:rtx|geforce)\s*5070\s*ti\b", t_norm):
         return "RTX 5070 Ti 16GB"
 
+    if re.search(r"(?:rtx|geforce)\s*5070\b", t_norm):
+        return "RTX 5070 12GB"
+
     if re.search(r"(?:rtx|geforce)\s*5060\s*ti\b", t_norm):
         # Reject 8GB 5060 Ti variants (don't let '16 GB DDR4/DDR5' fool this check)
         if re.search(r"5060\s*ti\s*8\s*gb\b", t_norm) or re.search(r"8\s*gb\s*gddr", t_norm):
