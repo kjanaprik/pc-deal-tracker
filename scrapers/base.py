@@ -88,11 +88,26 @@ def make_product_id(store: str, url: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
 
 
-def fetch_rendered_html(url: str, wait_ms: int = 2500) -> Optional[str]:
+def fetch_rendered_html(url: str, wait_ms: int = 2000) -> Optional[str]:
     """
-    Fetch JS-rendered HTML using Cloudflare Browser Rendering REST API
-    when CF_ACCOUNT_ID and CF_API_TOKEN are set.
+    Fetch JS-rendered HTML using local Playwright headless Chromium first,
+    falling back to Cloudflare Browser Rendering REST API if configured.
     """
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(user_agent=DEFAULT_HEADERS["User-Agent"])
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            page.wait_for_timeout(wait_ms)
+            html = page.content()
+            browser.close()
+            if html and len(html) > 1000:
+                return html
+    except Exception:
+        pass
+
     cf_account = os.getenv("CF_ACCOUNT_ID", "").strip()
     cf_token = os.getenv("CF_API_TOKEN", "").strip()
     if not (cf_account and cf_token):
@@ -206,26 +221,28 @@ def parse_price(text: str, currency_hint: str = "ISK") -> Optional[float]:
 
 
 def detect_target_gpu(text: str) -> Optional[str]:
-    """Match RTX 5060 Ti 16GB, RTX 5070 Ti 16GB, or RTX 5080 16GB."""
+    """Match RTX 5060 Ti 16GB, RTX 5070 12GB, RTX 5070 Ti 16GB, or RTX 5080 16GB."""
     t_norm = re.sub(r"[™®]", "", text.lower())
-    t_norm = re.sub(r"[\s\-_,]+", " ", t_norm)
+    t_norm = re.sub(r"[\s\-_,/]+", " ", t_norm)
 
-    if re.search(r"(?:rtx|geforce)\s*5080\b", t_norm):
+    if re.search(r"\b(?:rtx|geforce|r)\s*5080\b", t_norm):
         return "RTX 5080 16GB"
 
-    if re.search(r"(?:rtx|geforce)\s*5070\s*ti\b", t_norm):
+    if re.search(r"\b(?:rtx|geforce|r)\s*5070\s*ti\b", t_norm):
         return "RTX 5070 Ti 16GB"
 
-    if re.search(r"(?:rtx|geforce)\s*5070\b", t_norm):
+    if re.search(r"\b(?:rtx|geforce|r)\s*5070\b", t_norm):
         return "RTX 5070 12GB"
 
-    if re.search(r"(?:rtx|geforce)\s*5060\s*ti\b", t_norm):
-        # Reject 8GB 5060 Ti variants (don't let '16 GB DDR4/DDR5' fool this check)
-        if re.search(r"5060\s*ti\s*8\s*gb\b", t_norm) or re.search(r"8\s*gb\s*gddr", t_norm):
+    if re.search(r"\b(?:rtx|geforce|r)\s*5060\s*ti?\b", t_norm):
+        # If it's plain 5060 (no Ti and no 16GB), reject
+        if not re.search(r"5060\s*ti\b|5060\s*t\s*16\s*gb", t_norm):
             return None
-        if re.search(r"5060\s*ti\s*16\s*gb\b|5060\s*ti\s*16g\b|16\s*gb\s*gddr", t_norm):
+        # Reject 8GB 5060 Ti variants (don't let '16 GB DDR4/DDR5' fool this check)
+        if re.search(r"5060\s*ti?\s*8\s*gb\b", t_norm) or re.search(r"8\s*gb\s*gddr", t_norm):
+            return None
+        if re.search(r"5060\s*ti?\s*16\s*gb\b|5060\s*ti?\s*16g\b|16\s*gb\s*gddr", t_norm):
             return "RTX 5060 Ti 16GB"
-        # If neither 8GB nor 16GB VRAM is specified, exclude if 8GB appears anywhere near GPU
         if re.search(r"\b8\s*gb\b", t_norm):
             return None
         return "RTX 5060 Ti 16GB"
@@ -275,7 +292,10 @@ def extract_specs(title: str, description: str = "", store: str = "") -> dict[st
         r"(Ryzen\s*\d{4}[XF]{0,2})",
         r"(R[579][-\s]\d{4}X3D)",
         r"(R[579][-\s]\d{4}[XF]?)(?!\s*MHz)",
-        r"(Core\s*Ultra\s*[579]\s*(?:Processor\s*)?\d{3}[A-Z]{0,2})",
+        r"(Core\s*Ultra\s*[579]\s*(?:Processor\s*)?\d{3}[A-Z]{0,2}(?:\s*Plus)?)",
+        r"(Ultra\s*[579]\s*\d{3}[A-Z]{0,2}(?:\s*Plus)?)",
+        r"(Core\s*Ultra\s*[579])\b",
+        r"(Intel\s*Ultra\s*[579])\b",
         r"(Core\s*i[579][-\s]*(?:Processor\s*)?\d{5}[A-Z]{0,2})",
         r"(i[579][-\s]\d{5}[A-Z]{0,2})",
         r"\b(U[579])(?:/|\s+\d)",
@@ -287,6 +307,10 @@ def extract_specs(title: str, description: str = "", store: str = "") -> dict[st
             cpu = re.sub(r"[\s\-]+", " ", raw_cpu).strip()
             if cpu.upper() in ("U5", "U7", "U9"):
                 cpu = f"Core Ultra {cpu[1]}"
+            elif cpu.lower().startswith("intel ultra "):
+                cpu = "Core " + cpu[6:]
+            elif cpu.lower().startswith("ultra "):
+                cpu = "Core " + cpu
             elif re.match(r"^R([579])\s+(\d{4}.*)$", cpu, re.I):
                 rm = re.match(r"^R([579])\s+(\d{4}.*)$", cpu, re.I)
                 cpu = f"Ryzen {rm.group(1)} {rm.group(2).upper()}"
@@ -308,7 +332,7 @@ def extract_specs(title: str, description: str = "", store: str = "") -> dict[st
     ram_gb: Optional[int] = None
     ram_match = re.search(r"RAM\s*:\s*(16|24|32|48|64|96|128)\s*GB", text, re.I)
     if not ram_match:
-        ram_match = re.search(r"\b(16|24|32|48|64|96|128)\s*GB\s*(?:(?:\(\d+GBx\d+\)\s*)?DDR[45]|RAM|vinnsluminni)", text, re.I)
+        ram_match = re.search(r"\b(16|24|32|48|64|96|128)\s*GB\s*(?:(?:\(\d+GBx\d+\)\s*)?DDR[45]|(?:\d{4}\s*MHz\s*)?minni|RAM|vinnsluminni)", text, re.I)
     if not ram_match:
         ram_match = re.search(r"\b(32|48|64|96|128)\s*GB\b(?!\s*(?:GDDR|VRAM|RTX))", text, re.I)
     if not ram_match:

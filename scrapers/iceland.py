@@ -197,14 +197,14 @@ def scrape_tolvutaekni(fx_rates: dict[str, float]) -> tuple[list[Product], Store
 
 
 def scrape_computer_is(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
-    """Computer.is (computer.is) - Category & search HTML scraper."""
+    """Computer.is (computer.is) - Gaming & Workstation desktop categories."""
     store = "Computer.is"
     t0 = time.monotonic()
     products: dict[str, Product] = {}
     urls = [
-        "https://computer.is/is/products/leikjatolvur",
-        "https://computer.is/is/products/bordtolvur",
-    ] + [f"https://computer.is/is/search?q={t}" for t in SEARCH_TERMS]
+        "https://computer.is/is/products/leikjatolvur-leikjaturnar-leikjavelar",
+        "https://computer.is/is/products/vinnutolvur",
+    ]
 
     try:
         for u in urls:
@@ -212,17 +212,19 @@ def scrape_computer_is(fx_rates: dict[str, float]) -> tuple[list[Product], Store
             if resp.status_code != 200:
                 continue
             soup = BeautifulSoup(resp.text, "lxml")
-            for card in soup.select(".product-card, .product-item, .product, article, [class*='ProductCard']"):
-                link_el = card.select_one("a[href*='/is/product']") or card.select_one("a[href]")
+            for card in soup.select(".product-item.category-product, .product-card, .product-item"):
+                link_el = card.select_one("a[href*='/is/product/']") or card.select_one("a[href]")
                 if not link_el:
                     continue
                 full_url = urljoin("https://computer.is", link_el.get("href", ""))
-                title_el = card.select_one("h2, h3, h4, .product-title, .title") or link_el
+                title_el = card.select_one(".product-title, h2, h3, h4, .title") or link_el
                 title = title_el.get_text(" ", strip=True)
-                price_el = card.select_one(".price, [class*='price']")
-                price_val = parse_price(price_el.get_text(" ", strip=True) if price_el else card.get_text(" "), "ISK")
+                card_text = card.get_text(" ", strip=True)
+                price_m = re.search(r"([\d.]{5,})\s*kr", card_text, re.I)
+                price_val = parse_price(price_m.group(1), "ISK") if price_m else None
                 if not price_val or price_val < 50000:
                     continue
+                in_stock = "ekki til" not in card_text.lower() and "væntanleg" not in card_text.lower()
                 img_el = card.select_one("img")
                 img_url = urljoin("https://computer.is", img_el.get("src", "")) if img_el and img_el.get("src") else ""
                 prod = _build_iceland_product(
@@ -231,6 +233,8 @@ def scrape_computer_is(fx_rates: dict[str, float]) -> tuple[list[Product], Store
                     url=full_url,
                     price_isk=price_val,
                     image_url=img_url,
+                    description=card_text,
+                    in_stock=in_stock,
                     fx_rates=fx_rates,
                 )
                 if prod:
@@ -322,26 +326,43 @@ def scrape_elko(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]
 
 
 def scrape_tl(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
-    """Tölvulistinn (tl.is) - Next.js / Magento."""
+    """Tölvulistinn (tl.is) - Custom & Gaming PCs (/samsettar_tolvur)."""
     store = "Tölvulistinn"
     t0 = time.monotonic()
     products: dict[str, Product] = {}
     try:
-        for term in SEARCH_TERMS:
-            resp = requests.get(f"https://tl.is/leit?q={term}", headers=DEFAULT_HEADERS, timeout=15)
-            if resp.status_code != 200:
-                continue
-            soup = BeautifulSoup(resp.text, "lxml")
-            next_data = soup.find("script", id="__NEXT_DATA__")
-            if next_data and next_data.string:
-                raw_text = next_data.string
-                # Walk JSON for product objects if present
-                try:
-                    data = json.loads(raw_text)
-                    _walk_json_products(data, store, "https://tl.is", products, fx_rates)
-                except Exception:
-                    pass
-            time.sleep(0.5)
+        html = fetch_rendered_html("https://tl.is/samsettar_tolvur", wait_ms=2500)
+        if html:
+            soup = BeautifulSoup(html, "lxml")
+            for card in soup.select(".product-grid-card"):
+                link_el = card.select_one("a[href$='.html'], a[href]")
+                if not link_el:
+                    continue
+                full_url = urljoin("https://tl.is", link_el.get("href", ""))
+                card_text = card.get_text(" | ", strip=True)
+                parts = [p.strip() for p in card_text.split("|") if p.strip()]
+                title = next((p for p in parts if any(w in p.lower() for w in ("turntölva", "leikja", "rtx", "amd", "intel", "lenovo"))), parts[0] if parts else "")
+                prices = [parse_price(m, "ISK") for m in re.findall(r"([\d.]{5,})\s*kr", card_text, re.I)]
+                prices = [p for p in prices if p and p >= 50000]
+                if not prices:
+                    continue
+                price_val = min(prices)
+                orig_val = max(prices) if len(prices) > 1 and max(prices) > price_val else None
+                img_el = card.select_one("img")
+                img_url = img_el.get("src", "") if img_el else ""
+
+                prod = _build_iceland_product(
+                    store=store,
+                    title=title,
+                    url=full_url,
+                    price_isk=price_val,
+                    image_url=img_url,
+                    original_price_isk=orig_val,
+                    description=card_text,
+                    fx_rates=fx_rates,
+                )
+                if prod:
+                    products[prod.id] = prod
 
         return list(products.values()), StoreResult(
             store=store, region="Iceland", ships_to_iceland="Local",
@@ -356,34 +377,42 @@ def scrape_tl(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
 
 
 def scrape_kisildalur(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
-    """Kísildalur (kd.is) - SPA / HTML scraper."""
+    """Kísildalur (kd.is/category/30) - Angular SPA rendered via Playwright / Cloudflare."""
     store = "Kísildalur"
     t0 = time.monotonic()
     products: dict[str, Product] = {}
     try:
-        for url in [
-            "https://kd.is/vorur/tolvur/bordtolvur/leikjatolvur",
-            "https://kd.is/vorur/tolvur/bordtolvur",
-        ]:
-            html = fetch_rendered_html(url)
-            if not html:
-                resp = requests.get(url, headers=DEFAULT_HEADERS, timeout=15)
-                if resp.status_code != 200:
-                    continue
-                html = resp.text
+        html = fetch_rendered_html("https://kd.is/category/30", wait_ms=2500)
+        if html:
             soup = BeautifulSoup(html, "lxml")
-            for card in soup.select(".product, .product-card, article"):
-                link_el = card.select_one("a[href]")
-                if not link_el:
+            for card in soup.select(".products > *"):
+                name_el = card.select_one("a.name") or card.select_one("a[href*='/products/']")
+                if not name_el:
                     continue
-                full_url = urljoin("https://kd.is", link_el.get("href", ""))
-                title = card.get_text(" ", strip=True)
-                price_val = parse_price(title, "ISK")
+                full_url = urljoin("https://kd.is", name_el.get("href", ""))
+                name = name_el.get_text(" ", strip=True)
+                card_text = card.get_text(" | ", strip=True)
+                price_m = re.search(r"Verð:\s*([\d.]+)\s*kr", card_text, re.I) or re.search(r"([\d.]{5,})\s*kr", card_text, re.I)
+                price_val = parse_price(price_m.group(1), "ISK") if price_m else None
                 if not price_val or price_val < 50000:
                     continue
+                in_stock = "íhluti vantar" not in card_text.lower()
+                img_el = card.select_one("img")
+                img_url = urljoin("https://kd.is", img_el.get("src", "")) if img_el and img_el.get("src") else ""
+
+                # Build descriptive title combining KD build name + key specs
+                spec_parts = [s.strip() for s in card_text.split("|") if any(k in s.lower() for k in ("ryzen", "core", "ultra", "i5", "i7", "minni", "nvme", "rtx"))]
+                full_title = f"{name} ({', '.join(spec_parts[:4])})" if spec_parts else name
+
                 prod = _build_iceland_product(
-                    store=store, title=title[:140], url=full_url,
-                    price_isk=price_val, fx_rates=fx_rates,
+                    store=store,
+                    title=full_title,
+                    url=full_url,
+                    price_isk=price_val,
+                    image_url=img_url,
+                    description=card_text,
+                    in_stock=in_stock,
+                    fx_rates=fx_rates,
                 )
                 if prod:
                     products[prod.id] = prod
