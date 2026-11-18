@@ -243,10 +243,10 @@ function getFilteredProducts() {
     if (!activeGpus.has(p.gpu)) return false;
     if (ship === "Local" && p.ships_to_iceland !== "Local") return false;
     if (ship === "Direct" && !["Local", "Direct", "Direct (Amazon Global)"].includes(p.ships_to_iceland)) return false;
+    if (ship === "Quote / Forwarder" && !["Quote / Forwarder", "Quote Required"].includes(p.ships_to_iceland)) return false;
     if (ship === "region_Europe" && p.region !== "Europe") return false;
     if (ship === "region_USA/Canada" && p.region !== "USA/Canada") return false;
-    if (ship === "Quote Required" && p.ships_to_iceland !== "Quote Required") return false;
-    if (ship === "Forwarder Required" && p.ships_to_iceland !== "Forwarder Required") return false;
+    if (ship === "Forwarder Required" && !["Forwarder Required", "Quote / Forwarder"].includes(p.ships_to_iceland)) return false;
     if (store !== "all" && p.store !== store) return false;
     if (cpuBrand !== "all" && p.cpu_brand !== cpuBrand) return false;
     if (cpuModel !== "all" && p.cpu !== cpuModel) return false;

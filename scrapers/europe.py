@@ -133,30 +133,30 @@ def scrape_memorypc(fx_rates: dict[str, float]) -> tuple[list[Product], StoreRes
                     currency="EUR",
                     fx_rates=fx_rates,
                     local_vat=0.19,
-                    ships_to_iceland="Direct",
+                    ships_to_iceland="Quote / Forwarder",
                     image_url=img_url,
                     original_price=old_val,
                     description=card.get_text(" ", strip=True),
-                    notes="19% DE VAT deducted at export; +24% IS VAT on import",
+                    notes="Not in standard web checkout for Iceland; requires email export quote or DE forwarder (Mailboxde/ShipGerman)",
                 )
                 if prod:
                     products[prod.id] = prod
             time.sleep(0.5)
 
         return list(products.values()), StoreResult(
-            store=store, region="Europe", ships_to_iceland="Direct",
+            store=store, region="Europe", ships_to_iceland="Quote / Forwarder",
             status="ok", count=len(products), duration_ms=int((time.monotonic() - t0) * 1000)
         )
     except Exception as exc:
         return list(products.values()), StoreResult(
-            store=store, region="Europe", ships_to_iceland="Direct",
+            store=store, region="Europe", ships_to_iceland="Quote / Forwarder",
             status="error", count=len(products), error=str(exc),
             duration_ms=int((time.monotonic() - t0) * 1000),
         )
 
 
 def scrape_overclockers_uk(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
-    """Overclockers UK (overclockers.co.uk) - Ships to Iceland via DHL Worldwide Express."""
+    """Overclockers UK (overclockers.co.uk) - Requires email quote or UK forwarder for Iceland."""
     store = "Overclockers UK"
     t0 = time.monotonic()
     products: dict[str, Product] = {}
@@ -171,7 +171,7 @@ def scrape_overclockers_uk(fx_rates: dict[str, float]) -> tuple[list[Product], S
             resp = _fetch_with_optional_proxy(url)
             if resp.status_code == 403:
                 return [], StoreResult(
-                    store=store, region="Europe", ships_to_iceland="Direct",
+                    store=store, region="Europe", ships_to_iceland="Quote / Forwarder",
                     status="blocked", count=0, error="403 Forbidden (bot protection; set SCRAPERAPI_KEY or run locally)",
                     duration_ms=int((time.monotonic() - t0) * 1000),
                 )
@@ -207,22 +207,22 @@ def scrape_overclockers_uk(fx_rates: dict[str, float]) -> tuple[list[Product], S
                     currency="GBP",
                     fx_rates=fx_rates,
                     local_vat=0.20,
-                    ships_to_iceland="Direct",
+                    ships_to_iceland="Quote / Forwarder",
                     image_url=img_url,
                     description=card.get_text(" ", strip=True),
-                    notes="Ships to Iceland via DHL (20% UK VAT removed); verify live checkout as OCUK occasionally pauses non-UK shipping",
+                    notes="Iceland disabled in standard web checkout; requires email export quote or UK forwarder",
                 )
                 if prod:
                     products[prod.id] = prod
             time.sleep(0.5)
 
         return list(products.values()), StoreResult(
-            store=store, region="Europe", ships_to_iceland="Direct",
+            store=store, region="Europe", ships_to_iceland="Quote / Forwarder",
             status="ok", count=len(products), duration_ms=int((time.monotonic() - t0) * 1000)
         )
     except Exception as exc:
         return list(products.values()), StoreResult(
-            store=store, region="Europe", ships_to_iceland="Direct",
+            store=store, region="Europe", ships_to_iceland="Quote / Forwarder",
             status="error", count=len(products), error=str(exc),
             duration_ms=int((time.monotonic() - t0) * 1000),
         )
@@ -236,6 +236,7 @@ def _scrape_generic_eu_site(
     local_vat: float,
     fx_rates: dict[str, float],
     notes: str,
+    ships_to_iceland: str = "Quote / Forwarder",
 ) -> tuple[list[Product], StoreResult]:
     t0 = time.monotonic()
     products: dict[str, Product] = {}
@@ -282,7 +283,7 @@ def _scrape_generic_eu_site(
                 prod = _build_eu_product(
                     store=store, title=title, url=full_url, price=price_val,
                     currency=currency, fx_rates=fx_rates, local_vat=local_vat,
-                    ships_to_iceland="Direct", image_url=img_url,
+                    ships_to_iceland=ships_to_iceland, image_url=img_url,
                     description=card.get_text(" ", strip=True),
                     notes=notes,
                 )
@@ -292,18 +293,18 @@ def _scrape_generic_eu_site(
 
         if blocked and not products:
             return [], StoreResult(
-                store=store, region="Europe", ships_to_iceland="Direct",
+                store=store, region="Europe", ships_to_iceland=ships_to_iceland,
                 status="blocked", count=0,
                 error="Cloudflare/bot protection (set SCRAPERAPI_KEY or use self-hosted runner)",
                 duration_ms=int((time.monotonic() - t0) * 1000),
             )
         return list(products.values()), StoreResult(
-            store=store, region="Europe", ships_to_iceland="Direct",
+            store=store, region="Europe", ships_to_iceland=ships_to_iceland,
             status="ok", count=len(products), duration_ms=int((time.monotonic() - t0) * 1000)
         )
     except Exception as exc:
         return list(products.values()), StoreResult(
-            store=store, region="Europe", ships_to_iceland="Direct",
+            store=store, region="Europe", ships_to_iceland=ships_to_iceland,
             status="error", count=len(products), error=str(exc),
             duration_ms=int((time.monotonic() - t0) * 1000),
         )
