@@ -484,8 +484,8 @@ def scrape_all_north_america(fx_rates: dict[str, float]) -> tuple[list[Product],
         _scrape_via_scraperapi_or_direct(
             store="Newegg",
             urls=[
-                "https://www.newegg.com/p/pl?d=gaming+desktop+rtx+5070+ti",
-                "https://www.newegg.com/p/pl?d=gaming+desktop+rtx+5080",
+                "https://www.newegg.com/p/pl?N=601468633%20601470140%20601470139%20601483613%20100897483%208000",
+                "https://www.newegg.com/p/pl?N=601468633%20601470140%20601470139%20601483613%20100897483%208000&d=9800x3d+prebuilt",
             ],
             base_url="https://www.newegg.com",
             ships_to_iceland="Forwarder Required",
