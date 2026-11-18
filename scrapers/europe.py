@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from typing import Optional
 from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
+
+try:
+    from curl_cffi import requests as cffi_requests
+except ImportError:
+    cffi_requests = None
 
 from scrapers.base import (
     DEFAULT_HEADERS,
@@ -228,6 +234,70 @@ def scrape_overclockers_uk(fx_rates: dict[str, float]) -> tuple[list[Product], S
         )
 
 
+def scrape_alternate_de(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
+    """Alternate.de (alternate.de) - Uses curl_cffi chrome TLS on listing.xhtml."""
+    store = "Alternate.de"
+    t0 = time.monotonic()
+    products: dict[str, Product] = {}
+    fetcher = cffi_requests if cffi_requests else requests
+    try:
+        for q in ("gaming+pc+rtx+5060+ti", "gaming+pc+rtx+5070", "gaming+pc+rtx+5080"):
+            url = f"https://www.alternate.de/listing.xhtml?q={q}"
+            kwargs = {"impersonate": "chrome", "timeout": 15} if cffi_requests else {"headers": DEFAULT_HEADERS, "timeout": 15}
+            resp = fetcher.get(url, **kwargs)
+            if resp.status_code != 200:
+                continue
+            soup = BeautifulSoup(resp.text, "lxml")
+            for card in soup.select("a.productBox"):
+                href = card.get("href", "")
+                if not href:
+                    continue
+                full_url = urljoin("https://www.alternate.de", href)
+                name_el = card.select_one(".product-name")
+                title = name_el.get_text(" ", strip=True) if name_el else card.get_text(" ", strip=True)[:100]
+                card_text = card.get_text(" ", strip=True)
+                price_matches = re.findall(r"€\s*([\d.]+,\d{2})", card_text)
+                prices = [parse_price(m, "EUR") for m in price_matches]
+                prices = [p for p in prices if p and p >= 500]
+                if not prices:
+                    continue
+                price_val = min(prices)
+                orig_val = max(prices) if len(prices) > 1 and max(prices) > price_val else None
+                img_el = card.select_one("img")
+                img_url = img_el.get("src", "") if img_el else ""
+                if img_url and img_url.startswith("/"):
+                    img_url = urljoin("https://www.alternate.de", img_url)
+
+                prod = _build_eu_product(
+                    store=store,
+                    title=title,
+                    url=full_url,
+                    price=price_val,
+                    currency="EUR",
+                    fx_rates=fx_rates,
+                    local_vat=0.0,
+                    ships_to_iceland="Forwarder Required",
+                    image_url=img_url,
+                    original_price=orig_val,
+                    description=card_text,
+                    notes="Germany domestic; requires parcel forwarder (e.g. Mailboxde / ShipGerman)",
+                )
+                if prod:
+                    products[prod.id] = prod
+            time.sleep(0.5)
+
+        return list(products.values()), StoreResult(
+            store=store, region="Europe", ships_to_iceland="Forwarder Required",
+            status="ok", count=len(products), duration_ms=int((time.monotonic() - t0) * 1000)
+        )
+    except Exception as exc:
+        return list(products.values()), StoreResult(
+            store=store, region="Europe", ships_to_iceland="Forwarder Required",
+            status="error", count=len(products), error=str(exc),
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+
+
 def _scrape_generic_eu_site(
     store: str,
     urls: list[str],
@@ -237,6 +307,7 @@ def _scrape_generic_eu_site(
     fx_rates: dict[str, float],
     notes: str,
     ships_to_iceland: str = "Quote / Forwarder",
+    use_browser_fallback: bool = False,
 ) -> tuple[list[Product], StoreResult]:
     t0 = time.monotonic()
     products: dict[str, Product] = {}
@@ -246,13 +317,14 @@ def _scrape_generic_eu_site(
             html = None
             resp = _fetch_with_optional_proxy(url)
             if resp.status_code in (403, 429, 503):
-                html = fetch_rendered_html(url)
+                if use_browser_fallback:
+                    html = fetch_rendered_html(url)
                 if not html:
                     blocked = True
                     continue
             elif resp.status_code == 200:
                 html = resp.text
-                if len(html) < 25000:
+                if len(html) < 25000 and use_browser_fallback:
                     rendered = fetch_rendered_html(url)
                     if rendered:
                         html = rendered
@@ -448,7 +520,8 @@ def scrape_all_europe(fx_rates: dict[str, float]) -> tuple[list[Product], list[S
             currency="EUR",
             local_vat=0.19,
             fx_rates=fx_rates,
-            notes="Ships to Iceland; 19% DE VAT deducted",
+            notes="Not in standard web checkout for Iceland; requires email export quote or DE forwarder",
+            use_browser_fallback=True,
         ),
         _scrape_generic_eu_site(
             store="Computeruniverse",
@@ -477,15 +550,7 @@ def scrape_all_europe(fx_rates: dict[str, float]) -> tuple[list[Product], list[S
             fx_rates=fx_rates,
             notes="German builder with European shipping",
         ),
-        _scrape_generic_eu_site(
-            store="Alternate.de",
-            urls=["https://www.alternate.de/Gaming-PC"],
-            base_url="https://www.alternate.de",
-            currency="EUR",
-            local_vat=0.0,
-            fx_rates=fx_rates,
-            notes="Germany domestic; requires parcel forwarder (e.g. Mailboxde / ShipGerman)",
-        ),
+        scrape_alternate_de(fx_rates),
         _scrape_generic_eu_site(
             store="Cyberport.de",
             urls=["https://www.cyberport.de/pc-und-zubehoer/pc-systeme/gaming-pc.html"],
@@ -494,6 +559,7 @@ def scrape_all_europe(fx_rates: dict[str, float]) -> tuple[list[Product], list[S
             local_vat=0.0,
             fx_rates=fx_rates,
             notes="DE/AT domestic; requires parcel forwarder (e.g. Mailboxde / ShipGerman)",
+            ships_to_iceland="Forwarder Required",
         ),
         _scrape_amazon_eu("Amazon.de", "amazon.de", "EUR", 0.19, fx_rates),
         _scrape_amazon_eu("Amazon.co.uk", "amazon.co.uk", "GBP", 0.20, fx_rates),

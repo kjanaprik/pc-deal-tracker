@@ -43,37 +43,38 @@ def main() -> None:
     # Load previous deals & history
     prev_deals_data = load_json(DEALS_PATH, {"products": []})
     prev_by_id = {p["id"]: p for p in prev_deals_data.get("products", [])}
+    prev_by_store: dict[str, list[dict]] = {}
+    for p in prev_deals_data.get("products", []):
+        prev_by_store.setdefault(p["store"], []).append(p)
     history: dict[str, list[dict]] = load_json(HISTORY_PATH, {})
 
     enriched_products: list[dict] = []
     seen_ids: set[str] = set()
+    active_stores_this_run: set[str] = set()
 
     for prod in all_products:
         if prod.id in seen_ids:
             continue
         seen_ids.add(prod.id)
+        active_stores_this_run.add(prod.store)
         d = prod.to_dict()
 
+        # Compare against last recorded price in history (survives transient 0-item runs)
+        pts = history.get(prod.id, [])
         prev = prev_by_id.get(prod.id)
-        if prev:
-            prev_isk = prev.get("price_isk", d["price_isk"])
-            if d["price_isk"] < prev_isk:
-                drop_isk = prev_isk - d["price_isk"]
-                drop_pct = round((drop_isk / prev_isk) * 100, 1)
-                d["prev_price_isk"] = prev_isk
-                d["price_drop_isk"] = drop_isk
-                d["price_drop_pct"] = drop_pct
-            else:
-                d["prev_price_isk"] = prev_isk
-                d["price_drop_isk"] = 0
-                d["price_drop_pct"] = 0.0
+        last_known_isk = pts[-1].get("price_isk") if pts else (prev.get("price_isk") if prev else d["price_isk"])
+        if d["price_isk"] < last_known_isk:
+            drop_isk = last_known_isk - d["price_isk"]
+            drop_pct = round((drop_isk / last_known_isk) * 100, 1)
+            d["prev_price_isk"] = last_known_isk
+            d["price_drop_isk"] = drop_isk
+            d["price_drop_pct"] = drop_pct
         else:
-            d["prev_price_isk"] = d["price_isk"]
+            d["prev_price_isk"] = last_known_isk
             d["price_drop_isk"] = 0
             d["price_drop_pct"] = 0.0
 
-        # Update price history (append if price changed or >12h since last point)
-        pts = history.get(prod.id, [])
+        # Update price history (append if price changed or first seen)
         if not pts or pts[-1].get("price_isk") != d["price_isk"]:
             pts.append({
                 "ts": now_iso,
@@ -85,6 +86,20 @@ def main() -> None:
         # Compute all-time low from history
         d["lowest_isk"] = min(p["price_isk"] for p in history[prod.id])
         enriched_products.append(d)
+
+    # Preserve last-known products for stores that had a transient 0-item block/timeout
+    for res in all_results:
+        if res.count == 0 and res.store in prev_by_store and res.store not in active_stores_this_run:
+            cached = prev_by_store[res.store]
+            for old_p in cached:
+                if old_p["id"] not in seen_ids:
+                    seen_ids.add(old_p["id"])
+                    old_copy = dict(old_p)
+                    old_copy["price_drop_isk"] = 0
+                    old_copy["price_drop_pct"] = 0.0
+                    enriched_products.append(old_copy)
+            res.count = len(cached)
+            res.error = (res.error + " | " if res.error else "") + f"Showing {len(cached)} cached items from last successful scrape"
 
     enriched_products.sort(key=lambda x: x["estimated_landed_isk"])
 

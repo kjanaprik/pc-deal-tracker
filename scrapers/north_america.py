@@ -8,6 +8,11 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
+try:
+    from curl_cffi import requests as cffi_requests
+except ImportError:
+    cffi_requests = None
+
 from scrapers.base import (
     DEFAULT_HEADERS,
     Product,
@@ -204,14 +209,23 @@ def scrape_amazon_us(fx_rates: dict[str, float]) -> tuple[list[Product], StoreRe
             )
 
     blocked = False
+    fetcher = cffi_requests if cffi_requests else requests
     try:
         for term in ("gaming desktop rtx 5060 ti", "gaming desktop rtx 5070", "gaming desktop rtx 5080"):
-            r = requests.get(
-                "https://www.amazon.com/s",
-                params={"k": term},
-                headers=DEFAULT_HEADERS,
-                timeout=15,
-            )
+            if cffi_requests:
+                r = fetcher.get(
+                    "https://www.amazon.com/s",
+                    params={"k": term},
+                    impersonate="chrome",
+                    timeout=15,
+                )
+            else:
+                r = fetcher.get(
+                    "https://www.amazon.com/s",
+                    params={"k": term},
+                    headers=DEFAULT_HEADERS,
+                    timeout=15,
+                )
             if r.status_code in (202, 403, 503) or len(r.text) < 20000:
                 blocked = True
                 continue
@@ -273,6 +287,7 @@ def _scrape_via_scraperapi_or_direct(
     ships_to_iceland: str,
     fx_rates: dict[str, float],
     notes: str,
+    use_browser_fallback: bool = False,
 ) -> tuple[list[Product], StoreResult]:
     t0 = time.monotonic()
     scraper_api_key = os.getenv("SCRAPERAPI_KEY", "").strip()
@@ -286,17 +301,18 @@ def _scrape_via_scraperapi_or_direct(
                     timeout=35,
                 )
             else:
-                resp = requests.get(url, headers=DEFAULT_HEADERS, timeout=15)
+                resp = requests.get(url, headers=DEFAULT_HEADERS, timeout=12)
 
             html = None
             if resp.status_code in (403, 429, 503):
-                html = fetch_rendered_html(url)
+                if use_browser_fallback:
+                    html = fetch_rendered_html(url)
                 if not html:
                     blocked = True
                     continue
             elif resp.status_code == 200:
                 html = resp.text
-                if len(html) < 25000:
+                if len(html) < 25000 and use_browser_fallback:
                     rendered = fetch_rendered_html(url)
                     if rendered:
                         html = rendered

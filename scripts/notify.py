@@ -33,6 +33,9 @@ def find_alerts(deals: dict, watchlist: dict, notified: dict) -> list[dict]:
     watched_ids = set(watchlist.get("watched_ids", []))
     rules = watchlist.get("rules", [])
     notify_on_sale = bool(watchlist.get("notify_on_any_watched_sale", True))
+    notify_on_any_drop = bool(watchlist.get("notify_on_any_price_drop", True))
+    global_min_drop_pct = float(watchlist.get("global_min_drop_pct", 5.0))
+    global_min_drop_isk = int(watchlist.get("global_min_drop_isk", 15000))
     min_drop_pct = float(watchlist.get("min_price_drop_pct", 3.0))
 
     alerts: list[dict] = []
@@ -48,7 +51,14 @@ def find_alerts(deals: dict, watchlist: dict, notified: dict) -> list[dict]:
             elif notify_on_sale and p.get("on_sale"):
                 reasons.append(f"Watched PC is on sale ({p['discount_pct']}% off)")
 
-        # 2. Spec / price threshold rules
+        # 2. Global price cut check (any tracked PC dropping >= 5% or >= 15,000 ISK)
+        if notify_on_any_drop and not reasons:
+            drop_pct = float(p.get("price_drop_pct", 0.0))
+            drop_isk = int(p.get("price_drop_isk", 0))
+            if drop_pct >= global_min_drop_pct or drop_isk >= global_min_drop_isk:
+                reasons.append(f"Price cut detected: -{drop_pct}% (-{format_isk(drop_isk)})")
+
+        # 3. Spec / price threshold rules
         for rule in rules:
             if rule.get("gpu") and p.get("gpu") != rule["gpu"]:
                 continue
