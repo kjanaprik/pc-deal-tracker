@@ -261,37 +261,45 @@ def is_desktop_pc(title: str, extra_text: str = "") -> bool:
 
 def extract_specs(title: str, description: str = "", store: str = "") -> dict[str, Any]:
     """Extract CPU, RAM, Storage, and Brand from product title + description."""
-    text = f"{title} {description}"
+    text = re.sub(r"[™®]", "", f"{title} {description}")
     t_lower = text.lower()
 
     # CPU extraction
     cpu = "Unknown"
     cpu_brand = "Other"
     cpu_patterns = [
+        r"(Ryzen\s*Threadripper(?:\s*PRO)?\s*\d{4}W?X)",
         r"(Ryzen\s*[579]\s*\d{4}X3D)",
         r"(Ryzen\s*[579]\s*\d{4}[XF]{0,2})",
         r"(Ryzen\s*\d{4}X3D)",
         r"(Ryzen\s*\d{4}[XF]{0,2})",
         r"(R[579][-\s]\d{4}X3D)",
         r"(R[579][-\s]\d{4}[XF]?)(?!\s*MHz)",
-        r"(Core\s*Ultra\s*[579]\s*\d{3}K?F?)",
-        r"(Core\s*i[579][-\s]\d{5}K?F?)",
-        r"(i[579][-\s]\d{5}K?F?)",
+        r"(Core\s*Ultra\s*[579]\s*(?:Processor\s*)?\d{3}[A-Z]{0,2})",
+        r"(Core\s*i[579][-\s]*(?:Processor\s*)?\d{5}[A-Z]{0,2})",
+        r"(i[579][-\s]\d{5}[A-Z]{0,2})",
         r"\b(U[579])(?:/|\s+\d)",
     ]
     for pat in cpu_patterns:
         m = re.search(pat, text, re.I)
         if m:
-            cpu = re.sub(r"[\s\-]+", " ", m.group(1)).strip()
+            raw_cpu = re.sub(r"\bProcessor\b", "", m.group(1), flags=re.I)
+            cpu = re.sub(r"[\s\-]+", " ", raw_cpu).strip()
             if cpu.upper() in ("U5", "U7", "U9"):
                 cpu = f"Core Ultra {cpu[1]}"
+            elif re.match(r"^R([579])\s+(\d{4}.*)$", cpu, re.I):
+                rm = re.match(r"^R([579])\s+(\d{4}.*)$", cpu, re.I)
+                cpu = f"Ryzen {rm.group(1)} {rm.group(2).upper()}"
             elif re.match(r"^Ryzen\s+7500X3D$", cpu, re.I):
                 cpu = "Ryzen 5 7500X3D"
             elif re.match(r"^Ryzen\s+(7800X3D|9800X3D|9850X3D)$", cpu, re.I):
-                cpu = f"Ryzen 7 {cpu.split()[-1]}"
+                cpu = f"Ryzen 7 {cpu.split()[-1].upper()}"
+            elif re.match(r"^i([579])\s+(\d{5}.*)$", cpu, re.I):
+                im = re.match(r"^i([579])\s+(\d{5}.*)$", cpu, re.I)
+                cpu = f"Core i{im.group(1)} {im.group(2).upper()}"
             break
 
-    if "ryzen" in t_lower or cpu.lower().startswith("r"):
+    if "ryzen" in t_lower or "threadripper" in t_lower or cpu.lower().startswith("r"):
         cpu_brand = "AMD"
     elif "intel" in t_lower or "core" in t_lower or cpu.lower().startswith("i"):
         cpu_brand = "Intel"
@@ -300,9 +308,12 @@ def extract_specs(title: str, description: str = "", store: str = "") -> dict[st
     ram_gb: Optional[int] = None
     ram_match = re.search(r"RAM\s*:\s*(16|24|32|48|64|96|128)\s*GB", text, re.I)
     if not ram_match:
-        ram_match = re.search(r"\b(16|24|32|48|64|96|128)\s*GB\s*(?:DDR[45]|RAM|vinnsluminni)", text, re.I)
+        ram_match = re.search(r"\b(16|24|32|48|64|96|128)\s*GB\s*(?:(?:\(\d+GBx\d+\)\s*)?DDR[45]|RAM|vinnsluminni)", text, re.I)
     if not ram_match:
         ram_match = re.search(r"\b(32|48|64|96|128)\s*GB\b(?!\s*(?:GDDR|VRAM|RTX))", text, re.I)
+    if not ram_match:
+        # Elko shorthand e.g. U7/16/1TB or R7/32/2TB
+        ram_match = re.search(r"/(16|24|32|48|64)/(?:500|512|1|2|4)T?B", text, re.I)
     if ram_match:
         ram_gb = int(ram_match.group(1))
 
@@ -329,14 +340,21 @@ def extract_specs(title: str, description: str = "", store: str = "") -> dict[st
     for b in (
         "Lenovo", "ASUS", "ROG", "MSI", "HP", "OMEN", "Acer", "Predator",
         "Alienware", "Corsair", "NZXT", "iBUYPOWER", "CyberPowerPC",
-        "Skytech", "ABS", "Memory PC", "Caseking", "PCSpecialist",
-        "Overclockers", "OcUK", "ORIGIN PC", "Kísildalur", "Tölvutek", "Computer.is",
+        "Skytech", "ABS", "XOTIC PC", "Xotic PC", "Memory PC", "Caseking", "PCSpecialist",
+        "Overclockers", "OcUK", "ORIGIN PC", "Kísildalur", "Tölvutek", "Tölvutækni", "Computer.is",
     ):
         if b.lower() in t_lower:
-            brand = "Overclockers" if b in ("Overclockers", "OcUK") else b
+            if b in ("Overclockers", "OcUK"):
+                brand = "Overclockers"
+            elif b.lower() == "xotic pc":
+                brand = "XOTIC PC"
+            elif b.upper() == "MSI":
+                brand = "MSI"
+            else:
+                brand = b
             break
     if brand == "Custom / Prebuilt" and store:
-        if store in ("Memory PC", "Overclockers UK", "Caseking", "PCSpecialist", "CSL Computer"):
+        if store in ("Memory PC", "Overclockers UK", "Caseking", "PCSpecialist", "CSL Computer", "XOTIC PC", "CyberPowerPC", "Tölvutækni"):
             brand = "Overclockers" if store == "Overclockers UK" else store
 
     return {

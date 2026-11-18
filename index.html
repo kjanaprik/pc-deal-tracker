@@ -3,81 +3,106 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RTX 50-Series Gaming PC Deal Tracker — Iceland &amp; Global</title>
+  <title>IS/PC — RTX 50-Series Desktop Price Index (Iceland, EU &amp; US)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand">
-        <span class="brand-badge">RTX 50</span>
-        <div>
-          <h1>Gaming PC Deal Tracker</h1>
-          <p class="subtitle">RTX 5060 Ti 16GB • RTX 5070 Ti 16GB • RTX 5080 16GB — Iceland, EU &amp; US/CA</p>
+        <div class="brand-mark">IS<span>/</span>50</div>
+        <div class="brand-copy">
+          <div class="brand-title-row">
+            <h1>Iceland Gaming PC Price Index</h1>
+            <span id="bf-countdown" class="tag tag-amber">Black Friday 2026</span>
+          </div>
+          <p class="subtitle">Live landed-cost &amp; store price tracker for RTX 5060 Ti 16GB · 5070 12GB · 5070 Ti 16GB · 5080 16GB</p>
         </div>
       </div>
+
       <div class="topbar-meta">
-        <span id="bf-countdown" class="pill pill-accent">Black Friday 2026</span>
-        <span id="fx-pill" class="pill">FX: Loading...</span>
-        <span id="updated-pill" class="pill">Updated: —</span>
-        <button id="watchlist-btn" class="btn btn-primary">
-          ★ Watchlist (<span id="watchlist-count">0</span>)
+        <div class="meta-block">
+          <span class="meta-label">ÍSLANDSBANKI MC (+2.6%)</span>
+          <span id="fx-pill" class="meta-value mono">—</span>
+        </div>
+        <div class="meta-block">
+          <span class="meta-label">LAST SCRAPE</span>
+          <span id="updated-pill" class="meta-value mono">—</span>
+        </div>
+        <button id="status-btn" class="btn btn-subtle" type="button">
+          <span class="dot-live"></span> Stores (<span id="active-stores-count">0</span>)
         </button>
-        <button id="status-btn" class="btn btn-ghost">Store Status</button>
+        <button id="watchlist-btn" class="btn btn-watch-header" type="button">
+          ★ Watchlist <span id="watchlist-count" class="mono">0</span>
+        </button>
       </div>
     </div>
   </header>
 
+  <!-- Lowest Price Per GPU Benchmark Bar -->
+  <section class="benchmark-strip">
+    <div class="benchmark-inner" id="gpu-benchmarks"></div>
+  </section>
+
   <main class="container">
     <aside class="filters-panel">
       <div class="panel-header">
-        <h2>Filters</h2>
-        <button id="reset-filters" class="btn-link">Reset</button>
+        <h2>Hardware &amp; Store Filters</h2>
+        <button id="reset-filters" class="btn-link" type="button">Reset all</button>
       </div>
 
       <div class="filter-group">
-        <label for="search-input">Search</label>
-        <input id="search-input" type="search" placeholder="e.g. 9800X3D, Legion, ASUS..." />
+        <label for="search-input">Keyword / SKU Search</label>
+        <input id="search-input" type="search" placeholder="9800X3D, Legion, Caseking, White..." />
       </div>
 
       <div class="filter-group">
-        <label>GPU</label>
+        <div class="label-row">
+          <label>GPU Tier</label>
+          <button id="gpu-select-all" class="btn-micro" type="button">All tiers</button>
+        </div>
         <div class="chip-group" id="gpu-chips">
-          <button class="chip active" data-gpu="RTX 5060 Ti 16GB">5060 Ti 16GB</button>
-          <button class="chip active" data-gpu="RTX 5070 12GB">5070 12GB</button>
-          <button class="chip active" data-gpu="RTX 5070 Ti 16GB">5070 Ti 16GB</button>
-          <button class="chip active" data-gpu="RTX 5080 16GB">5080 16GB</button>
+          <button class="chip active" data-gpu="RTX 5060 Ti 16GB" type="button">5060 Ti <span>16G</span></button>
+          <button class="chip active" data-gpu="RTX 5070 12GB" type="button">5070 <span>12G</span></button>
+          <button class="chip active" data-gpu="RTX 5070 Ti 16GB" type="button">5070 Ti <span>16G</span></button>
+          <button class="chip active" data-gpu="RTX 5080 16GB" type="button">5080 <span>16G</span></button>
         </div>
       </div>
 
       <div class="filter-group">
-        <label for="shipping-filter">Shipping to Iceland</label>
+        <label for="shipping-filter">Delivery &amp; Region</label>
         <select id="shipping-filter">
-          <option value="all">All Stores</option>
-          <option value="Local">Iceland Only (Local)</option>
+          <option value="all">All Regions &amp; Shipping Methods</option>
+          <option value="Local">Iceland Only (Local Stock)</option>
           <option value="Direct">Ships Direct to Iceland (IS + EU + B&amp;H/Amazon)</option>
-          <option value="Forwarder Required">Forwarder Required (US/CA)</option>
+          <option value="region_Europe">Europe Retailers Only (DE / UK)</option>
+          <option value="region_USA/Canada">USA / Canada Retailers Only</option>
+          <option value="Quote Required">Custom Freight Quote (XOTIC / ORIGIN)</option>
+          <option value="Forwarder Required">Freight Forwarder Required (US/DE)</option>
         </select>
       </div>
 
       <div class="filter-group">
-        <label for="store-filter">Store</label>
+        <label for="store-filter">Retailer</label>
         <select id="store-filter">
-          <option value="all">All Stores</option>
+          <option value="all">All Retailers</option>
         </select>
       </div>
 
       <div class="filter-row">
         <div class="filter-group">
-          <label for="cpu-filter">CPU Brand</label>
+          <label for="cpu-filter">CPU Platform</label>
           <select id="cpu-filter">
-            <option value="all">All CPUs</option>
+            <option value="all">All Platforms</option>
             <option value="AMD">AMD Ryzen</option>
             <option value="Intel">Intel Core</option>
           </select>
         </div>
         <div class="filter-group">
-          <label for="cpu-model-filter">CPU Model</label>
+          <label for="cpu-model-filter">Processor Model</label>
           <select id="cpu-model-filter">
             <option value="all">All Models</option>
           </select>
@@ -85,7 +110,7 @@
       </div>
 
       <div class="filter-group">
-        <label for="brand-filter">Computer Brand</label>
+        <label for="brand-filter">System Integrator / Brand</label>
         <select id="brand-filter">
           <option value="all">All Brands</option>
         </select>
@@ -93,52 +118,64 @@
 
       <div class="filter-row">
         <div class="filter-group">
-          <label for="ram-filter">Min RAM</label>
+          <label for="ram-filter">System Memory</label>
           <select id="ram-filter">
-            <option value="0">Any</option>
-            <option value="16">16GB+</option>
-            <option value="32">32GB+</option>
-            <option value="64">64GB+</option>
-            <option value="128">128GB+</option>
+            <option value="0">Any RAM</option>
+            <option value="16">16 GB+</option>
+            <option value="32">32 GB+</option>
+            <option value="64">64 GB+</option>
+            <option value="128">128 GB+</option>
           </select>
         </div>
         <div class="filter-group">
-          <label for="storage-filter">Min Disk Space</label>
+          <label for="storage-filter">NVMe / SSD</label>
           <select id="storage-filter">
-            <option value="0">Any</option>
-            <option value="500">500GB+</option>
-            <option value="1000">1TB+</option>
-            <option value="2000">2TB+</option>
-            <option value="4000">4TB+</option>
+            <option value="0">Any Storage</option>
+            <option value="500">500 GB+</option>
+            <option value="1000">1 TB+</option>
+            <option value="2000">2 TB+</option>
+            <option value="4000">4 TB+</option>
           </select>
         </div>
       </div>
 
       <div class="filter-group">
-        <label for="max-price">Max Landed Price: <span id="max-price-label">No limit</span></label>
+        <div class="label-row">
+          <label for="max-price">Max Landed Budget</label>
+          <span id="max-price-label" class="mono price-cap-label">No limit</span>
+        </div>
         <input id="max-price" type="range" min="200000" max="1200000" step="25000" value="1200000" />
       </div>
 
       <div class="filter-toggles">
-        <label class="toggle"><input type="checkbox" id="sale-only" /> On Sale / Price Drop Only</label>
-        <label class="toggle"><input type="checkbox" id="stock-only" checked /> In Stock Only</label>
-        <label class="toggle"><input type="checkbox" id="watched-only" /> Watched PCs Only</label>
+        <label class="toggle"><input type="checkbox" id="sale-only" /> Discounted / Price Drop Only</label>
+        <label class="toggle"><input type="checkbox" id="stock-only" checked /> In-Stock Systems Only</label>
+        <label class="toggle"><input type="checkbox" id="watched-only" /> Starred Watchlist Only</label>
       </div>
     </aside>
 
     <section class="results-section">
-      <div class="results-bar">
-        <div id="results-count" class="results-count">Loading deals...</div>
-        <div class="sort-wrap">
-          <label for="sort-select">Sort by</label>
-          <select id="sort-select">
-            <option value="landed_asc">Est. Landed Price (Low → High)</option>
-            <option value="landed_desc">Est. Landed Price (High → Low)</option>
-            <option value="store_asc">Store Price (Low → High)</option>
-            <option value="store_desc">Store Price (High → Low)</option>
-            <option value="discount_desc">Biggest Sale %</option>
-            <option value="drop_desc">Recent Price Drop</option>
-          </select>
+      <div class="results-toolbar">
+        <div class="results-left">
+          <div id="results-count" class="results-count mono">Loading index...</div>
+          <div id="active-filters" class="active-filters"></div>
+        </div>
+        <div class="results-controls">
+          <div class="sort-wrap">
+            <label for="sort-select">Sort</label>
+            <select id="sort-select">
+              <option value="landed_asc">Landed ISK: Low → High</option>
+              <option value="landed_desc">Landed ISK: High → Low</option>
+              <option value="store_asc">Store Price: Low → High</option>
+              <option value="store_desc">Store Price: High → Low</option>
+              <option value="discount_desc">Biggest Discount %</option>
+              <option value="drop_desc">Recent Price Drop</option>
+            </select>
+          </div>
+          <div class="view-switch" role="group" aria-label="View mode">
+            <button id="view-cards" class="view-btn active" type="button" title="Card grid">Grid</button>
+            <button id="view-table" class="view-btn" type="button" title="Compact comparison table">Table</button>
+          </div>
         </div>
       </div>
 
@@ -150,21 +187,21 @@
   <div id="watchlist-modal" class="modal hidden">
     <div class="modal-card">
       <div class="modal-head">
-        <h3>Your Watchlist &amp; Email Alerts</h3>
-        <button class="modal-close" data-close="watchlist-modal">✕</button>
+        <h3>Watchlist &amp; Automated Email Alerts</h3>
+        <button class="modal-close" data-close="watchlist-modal" type="button">✕</button>
       </div>
       <p class="modal-desc">
-        Starred PCs are saved in your browser immediately. To receive <strong>GitHub Actions email alerts</strong>
-        on price drops or Black Friday sales, copy or commit the updated <code>watchlist.json</code> to your repo.
+        Starred rigs are stored locally in your browser. To trigger <strong>GitHub Actions SMTP alerts</strong>
+        when a watched system drops in price, copy or commit <code>watchlist.json</code> to your repository.
       </p>
       <div id="watchlist-items" class="watchlist-items"></div>
       <div class="modal-actions">
-        <button id="copy-watchlist" class="btn btn-primary">Copy watchlist.json</button>
-        <a id="edit-github-watchlist" class="btn btn-ghost" href="https://github.com/kjanaprik/pc-deal-tracker/edit/main/watchlist.json" target="_blank" rel="noopener">
-          Edit on GitHub →
+        <button id="copy-watchlist" class="btn btn-primary" type="button">Copy watchlist.json</button>
+        <a id="edit-github-watchlist" class="btn btn-subtle" href="https://github.com/kjanaprik/pc-deal-tracker/edit/main/watchlist.json" target="_blank" rel="noopener">
+          Commit on GitHub →
         </a>
       </div>
-      <pre id="watchlist-json-preview" class="code-preview"></pre>
+      <pre id="watchlist-json-preview" class="code-preview mono"></pre>
     </div>
   </div>
 
@@ -172,11 +209,11 @@
   <div id="status-modal" class="modal hidden">
     <div class="modal-card modal-wide">
       <div class="modal-head">
-        <h3>Store Scraper Status &amp; Iceland Shipping Guide</h3>
-        <button class="modal-close" data-close="status-modal">✕</button>
+        <h3>Retailer Feed Health &amp; Iceland Import Rules</h3>
+        <button class="modal-close" data-close="status-modal" type="button">✕</button>
       </div>
       <p class="modal-desc">
-        Landed ISK estimates for foreign stores deduct local EU/UK VAT where applicable and add estimated heavy-PC freight + 24% Icelandic VAT + 2.500 ISK customs clearance.
+        <strong>Landed Cost Formula:</strong> Foreign store prices are converted at the live Íslandsbanki Mastercard rate (+2.60% markup), local EU/UK VAT is deducted where exported direct, and estimated heavy-tower courier freight + <strong>24% Icelandic VAT</strong> + <strong>2.500 ISK</strong> customs clearance are added.
       </p>
       <div id="store-status-table"></div>
     </div>
@@ -187,7 +224,7 @@
     <div class="modal-card">
       <div class="modal-head">
         <h3 id="history-title">Price History</h3>
-        <button class="modal-close" data-close="history-modal">✕</button>
+        <button class="modal-close" data-close="history-modal" type="button">✕</button>
       </div>
       <div id="history-chart"></div>
     </div>

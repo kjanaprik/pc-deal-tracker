@@ -43,7 +43,7 @@ def _build_na_product(
     if not is_desktop_pc(title, description):
         return None
 
-    specs = extract_specs(title, description)
+    specs = extract_specs(title, description, store=store)
     sticker_isk, landed_isk = compute_landed_isk(
         price_original=price_usd,
         currency="USD",

@@ -1,4 +1,5 @@
 const STORAGE_KEY = "pc_deal_tracker_watchlist_v1";
+const ALL_GPUS = ["RTX 5060 Ti 16GB", "RTX 5070 12GB", "RTX 5070 Ti 16GB", "RTX 5080 16GB"];
 
 const STORE_DOMAINS = {
   "Tölvutek": "tolvutek.is",
@@ -32,20 +33,38 @@ function storeLogoHtml(store) {
   const domain = STORE_DOMAINS[store];
   const initials = store.replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "PC";
   if (!domain) {
-    return `<span class="store-monogram">${initials}</span>`;
+    return `<span class="store-monogram" style="display:inline-flex">${initials}</span>`;
   }
   const url = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
   return `<span class="store-logo-wrap"><img class="store-logo" src="${url}" alt="${escapeHtml(store)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex'" /><span class="store-monogram" style="display:none">${initials}</span></span>`;
+}
+
+function displayTitle(p) {
+  if (p.title && p.title.trim()) return p.title.trim();
+  try {
+    const u = new URL(p.url);
+    const segs = u.pathname.split("/").filter(Boolean);
+    const slug = segs.find((s) => s.length > 12 && !s.endsWith(".html")) || segs[segs.length - 1] || "";
+    const cleaned = decodeURIComponent(slug)
+      .replace(/\.html$/i, "")
+      .replace(/[-_]+/g, " ")
+      .replace(/\b(wqhd|uhd|fhd|am5|ddr5|rtx|gpu|pc|rgb|ssd)\b/gi, (m) => m.toUpperCase());
+    if (cleaned.length > 6) {
+      return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+    }
+  } catch (_) {}
+  return `${p.store} ${p.gpu} Gaming Desktop`;
 }
 
 let allProducts = [];
 let storeStatuses = [];
 let priceHistory = {};
 let repoWatchlist = { watched_ids: [], rules: [], notify_on_any_watched_sale: true, min_price_drop_pct: 3.0 };
-let activeGpus = new Set(["RTX 5060 Ti 16GB", "RTX 5070 12GB", "RTX 5070 Ti 16GB", "RTX 5080 16GB"]);
+let activeGpus = new Set(ALL_GPUS);
 let localWatchlist = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"));
+let viewMode = "cards"; // "cards" | "table"
 
-const fmtIsk = (n) => `${Math.round(n).toLocaleString("de-DE")} ISK`;
+const fmtIsk = (n) => `${Math.round(n).toLocaleString("de-DE")} kr.`;
 
 function updateCountdown() {
   const el = document.getElementById("bf-countdown");
@@ -53,12 +72,12 @@ function updateCountdown() {
   const cm = new Date("2026-12-01T00:00:00Z");
   const now = new Date();
   if (now >= bf && now <= cm) {
-    el.textContent = "🔥 BLACK FRIDAY WEEKEND LIVE";
+    el.textContent = "BLACK FRIDAY LIVE";
   } else if (now < bf) {
     const days = Math.ceil((bf - now) / (1000 * 60 * 60 * 24));
-    el.textContent = `Black Friday in ${days}d`;
+    el.textContent = `BF-26 · T-${days}D`;
   } else {
-    el.textContent = "Cyber Week / Holiday Deals";
+    el.textContent = "CYBER WEEK";
   }
 }
 
@@ -72,7 +91,10 @@ async function init() {
     ]);
 
     const deals = await dealsRes.json();
-    allProducts = deals.products || [];
+    allProducts = (deals.products || []).map((p) => ({
+      ...p,
+      title: displayTitle(p),
+    }));
     storeStatuses = deals.stores || [];
 
     if (histRes && histRes.ok) priceHistory = await histRes.json();
@@ -84,9 +106,16 @@ async function init() {
 
     const fx = deals.fx_rates || {};
     document.getElementById("fx-pill").textContent =
-      `Íslandsbanki MC (+2.6%): 1€=${fx.EUR || "?"} | 1$=${fx.USD || "?"} | 1£=${fx.GBP || "?"}`;
-    document.getElementById("updated-pill").textContent =
-      `Updated: ${deals.updated_at ? new Date(deals.updated_at).toLocaleString() : "—"}`;
+      `EUR ${fx.EUR || "?"} · USD ${fx.USD || "?"} · GBP ${fx.GBP || "?"}`;
+
+    if (deals.updated_at) {
+      const dt = new Date(deals.updated_at);
+      document.getElementById("updated-pill").textContent =
+        dt.toLocaleString("en-GB", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    }
+
+    const activeStoreCount = new Set(allProducts.map((p) => p.store)).size;
+    document.getElementById("active-stores-count").textContent = `${activeStoreCount}/${storeStatuses.length || activeStoreCount}`;
 
     populateStores();
     populateDynamicFilters();
@@ -95,7 +124,7 @@ async function init() {
     render();
   } catch (err) {
     document.getElementById("deals-grid").innerHTML =
-      `<div class="empty-state">Failed to load <code>data/deals.json</code>: ${err.message}</div>`;
+      `<div class="empty-state">Failed to load <code>data/deals.json</code>: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -109,12 +138,31 @@ function populateStores() {
     ? storeStatuses.map((s) => s.store)
     : [...new Set(allProducts.map((p) => p.store))];
 
-  for (const s of allStoreNames) {
-    const opt = document.createElement("option");
-    opt.value = s;
-    const c = counts[s] || 0;
-    opt.textContent = `${s} (${c})`;
-    sel.appendChild(opt);
+  const active = allStoreNames.filter((s) => (counts[s] || 0) > 0).sort((a, b) => counts[b] - counts[a]);
+  const empty = allStoreNames.filter((s) => !counts[s]).sort();
+
+  sel.innerHTML = `<option value="all">All Retailers (${allProducts.length})</option>`;
+  if (active.length) {
+    const grpActive = document.createElement("optgroup");
+    grpActive.label = `With Matching Stock (${active.length})`;
+    for (const s of active) {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = `${s} (${counts[s]})`;
+      grpActive.appendChild(opt);
+    }
+    sel.appendChild(grpActive);
+  }
+  if (empty.length) {
+    const grpEmpty = document.createElement("optgroup");
+    grpEmpty.label = `0 Current Matches (${empty.length})`;
+    for (const s of empty) {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = `${s} (0)`;
+      grpEmpty.appendChild(opt);
+    }
+    sel.appendChild(grpEmpty);
   }
 }
 
@@ -127,7 +175,8 @@ function populateDynamicFilters() {
     const b = p.brand || "Custom / Prebuilt";
     brandCounts[b] = (brandCounts[b] || 0) + 1;
   }
-  for (const brand of Object.keys(brandCounts).sort()) {
+  brandSel.innerHTML = `<option value="all">All Brands</option>`;
+  for (const brand of Object.keys(brandCounts).sort((a, b) => brandCounts[b] - brandCounts[a])) {
     const opt = document.createElement("option");
     opt.value = brand;
     opt.textContent = `${brand} (${brandCounts[brand]})`;
@@ -194,6 +243,9 @@ function getFilteredProducts() {
     if (!activeGpus.has(p.gpu)) return false;
     if (ship === "Local" && p.ships_to_iceland !== "Local") return false;
     if (ship === "Direct" && !["Local", "Direct", "Direct (Amazon Global)"].includes(p.ships_to_iceland)) return false;
+    if (ship === "region_Europe" && p.region !== "Europe") return false;
+    if (ship === "region_USA/Canada" && p.region !== "USA/Canada") return false;
+    if (ship === "Quote Required" && p.ships_to_iceland !== "Quote Required") return false;
     if (ship === "Forwarder Required" && p.ships_to_iceland !== "Forwarder Required") return false;
     if (store !== "all" && p.store !== store) return false;
     if (cpuBrand !== "all" && p.cpu_brand !== cpuBrand) return false;
@@ -232,27 +284,127 @@ function gpuBadgeClass(gpu) {
   return "badge-gpu-5060ti";
 }
 
+function renderBenchmarks() {
+  const wrap = document.getElementById("gpu-benchmarks");
+  if (!wrap) return;
+
+  wrap.innerHTML = ALL_GPUS.map((gpu) => {
+    const matching = allProducts.filter((p) => p.gpu === gpu && p.in_stock);
+    const best = matching.reduce((min, p) => (!min || p.estimated_landed_isk < min.estimated_landed_isk ? p : min), null);
+    const isIsolated = activeGpus.size === 1 && activeGpus.has(gpu);
+    return `
+      <button type="button" class="bench-card ${isIsolated ? "active-tier" : ""}" data-bench-gpu="${gpu}">
+        <div>
+          <div class="bench-gpu">
+            <span>${gpu.replace("RTX ", "")}</span>
+            <span class="bench-count">${matching.length} rigs</span>
+          </div>
+          <div class="bench-price">${best ? fmtIsk(best.estimated_landed_isk) : "—"}</div>
+        </div>
+        <div class="bench-meta">
+          <div>Lowest Landed</div>
+          <div class="bench-store">${best ? escapeHtml(best.store) : "No stock"}</div>
+        </div>
+      </button>
+    `;
+  }).join("");
+
+  wrap.querySelectorAll("[data-bench-gpu]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const g = btn.dataset.benchGpu;
+      if (activeGpus.size === 1 && activeGpus.has(g)) {
+        activeGpus = new Set(ALL_GPUS);
+      } else {
+        activeGpus = new Set([g]);
+      }
+      syncGpuChipUI();
+      render();
+    });
+  });
+}
+
+function syncGpuChipUI() {
+  document.querySelectorAll("#gpu-chips .chip").forEach((c) => {
+    c.classList.toggle("active", activeGpus.has(c.dataset.gpu));
+  });
+}
+
+function renderActiveFilterPills() {
+  const container = document.getElementById("active-filters");
+  if (!container) return;
+  const pills = [];
+
+  if (activeGpus.size < ALL_GPUS.length) {
+    pills.push({ label: `GPU: ${[...activeGpus].map((g) => g.replace("RTX ", "")).join(", ")}`, clear: () => { activeGpus = new Set(ALL_GPUS); syncGpuChipUI(); } });
+  }
+  const ship = document.getElementById("shipping-filter");
+  if (ship.value !== "all") {
+    pills.push({ label: ship.options[ship.selectedIndex].text, clear: () => { ship.value = "all"; } });
+  }
+  const store = document.getElementById("store-filter");
+  if (store.value !== "all") {
+    pills.push({ label: `Store: ${store.value}`, clear: () => { store.value = "all"; } });
+  }
+  const cpuBrand = document.getElementById("cpu-filter");
+  if (cpuBrand.value !== "all") {
+    pills.push({ label: `CPU: ${cpuBrand.value}`, clear: () => { cpuBrand.value = "all"; populateCpuModels(); } });
+  }
+  const cpuModel = document.getElementById("cpu-model-filter");
+  if (cpuModel.value !== "all") {
+    pills.push({ label: cpuModel.value, clear: () => { cpuModel.value = "all"; } });
+  }
+  const brand = document.getElementById("brand-filter");
+  if (brand.value !== "all") {
+    pills.push({ label: `Brand: ${brand.value}`, clear: () => { brand.value = "all"; } });
+  }
+
+  container.innerHTML = pills.map((p, idx) =>
+    `<span class="filter-pill" data-pill="${idx}">${escapeHtml(p.label)} <span>✕</span></span>`
+  ).join("");
+
+  container.querySelectorAll("[data-pill]").forEach((el) => {
+    el.addEventListener("click", () => {
+      pills[parseInt(el.dataset.pill, 10)].clear();
+      render();
+    });
+  });
+}
+
 function render() {
+  renderBenchmarks();
+  renderActiveFilterPills();
+
   const list = getFilteredProducts();
   document.getElementById("results-count").textContent =
-    `Showing ${list.length} of ${allProducts.length} Gaming Desktop PCs`;
+    `${list.length} OF ${allProducts.length} SYSTEMS`;
 
   const grid = document.getElementById("deals-grid");
   if (!list.length) {
-    grid.innerHTML = `<div class="empty-state">No Gaming Desktop PCs match your current filters. Try widening your search or resetting filters.</div>`;
+    grid.innerHTML = `<div class="empty-state">No systems match your active filter criteria. Click "Reset all" to broaden your search.</div>`;
+    return;
+  }
+
+  if (viewMode === "table") {
+    renderTableView(list, grid);
     return;
   }
 
   grid.innerHTML = list.map((p) => {
     const watching = localWatchlist.has(p.id);
-    const saleBadge = p.on_sale ? `<span class="badge badge-sale">-${p.discount_pct}% SALE</span>` : "";
+    const saleBadge = p.on_sale ? `<span class="badge badge-sale">-${p.discount_pct}%</span>` : "";
     const dropBadge = p.price_drop_pct > 0 ? `<span class="badge badge-drop">▼ -${p.price_drop_pct}%</span>` : "";
     const oldPrice = p.original_price_isk ? `<span class="price-old">${fmtIsk(p.original_price_isk)}</span>` : "";
-    const stickerNote = p.region === "Iceland"
-      ? `Store: ${fmtIsk(p.price_isk)} (Local price incl. 24% VAT)`
-      : `Store: ${p.price_original} ${p.currency} (≈ ${fmtIsk(p.price_isk)} @ Íslandsbanki MC)`;
+
+    const storePriceIsk = fmtIsk(p.price_isk);
+    const storeOrig = p.region === "Iceland"
+      ? "Incl. 24% IS VAT"
+      : `${p.price_original.toLocaleString("en-US")} ${p.currency} @ MC`;
 
     const logoHtml = storeLogoHtml(p.store);
+    const shipClass = p.ships_to_iceland === "Local" ? "ship-local" : "";
+    const thumbHtml = p.image_url
+      ? `<img class="pc-thumb" src="${escapeHtml(p.image_url)}" alt="" loading="lazy" onerror="this.style.display='none'" />`
+      : "";
 
     return `
       <article class="card">
@@ -261,44 +413,131 @@ function render() {
             <div class="store-identity">
               ${logoHtml}
               <span class="store-name">${escapeHtml(p.store)}</span>
-              <span class="store-region">• ${escapeHtml(p.region)}</span>
+              <span class="store-region">· ${escapeHtml(p.region)}</span>
             </div>
-            <span class="badge badge-ship">${escapeHtml(p.ships_to_iceland)}</span>
+            <span class="badge badge-ship ${shipClass}">${escapeHtml(p.ships_to_iceland)}</span>
           </div>
+
           <div class="card-badges">
-            <span class="badge ${gpuBadgeClass(p.gpu)}">${p.gpu}</span>
+            <span class="badge ${gpuBadgeClass(p.gpu)}">${escapeHtml(p.gpu)}</span>
+            <span class="badge badge-ship">${escapeHtml(p.brand || "Custom")}</span>
             ${saleBadge}
             ${dropBadge}
           </div>
-          <h3 class="card-title">${escapeHtml(p.title)}</h3>
-          <div class="specs-row">
-            <span class="spec-pill">CPU: ${escapeHtml(p.cpu)}</span>
-            <span class="spec-pill">RAM: ${p.ram_gb ? p.ram_gb + "GB" : "?"}</span>
-            <span class="spec-pill">SSD: ${escapeHtml(p.storage_label)}</span>
+
+          <div class="card-body-head">
+            ${thumbHtml}
+            <h3 class="card-title" title="${escapeHtml(p.title)}">${escapeHtml(p.title)}</h3>
+          </div>
+
+          <div class="spec-grid">
+            <div class="spec-cell">
+              <span class="spec-k">Processor</span>
+              <span class="spec-v" title="${escapeHtml(p.cpu)}">${escapeHtml(p.cpu)}</span>
+            </div>
+            <div class="spec-cell">
+              <span class="spec-k">Memory</span>
+              <span class="spec-v">${p.ram_gb ? p.ram_gb + " GB" : "—"}</span>
+            </div>
+            <div class="spec-cell">
+              <span class="spec-k">Storage</span>
+              <span class="spec-v">${escapeHtml(p.storage_label !== "Unknown" ? p.storage_label : "—")}</span>
+            </div>
           </div>
         </div>
 
         <div>
           <div class="price-box">
-            <div class="price-landed">${fmtIsk(p.estimated_landed_isk)} ${oldPrice}</div>
-            <div class="price-sub">${stickerNote}</div>
+            <div>
+              <span class="price-col-label">Est. Landed (IS)</span>
+              <div class="price-landed">${fmtIsk(p.estimated_landed_isk)}${oldPrice}</div>
+            </div>
+            <div class="price-store-col">
+              <span class="price-col-label">Store Price</span>
+              <div class="price-store-isk">${storePriceIsk}</div>
+              <div class="price-store-orig">${escapeHtml(storeOrig)}</div>
+            </div>
           </div>
-          <div class="card-actions" style="margin-top:10px;">
-            <button class="btn btn-watch ${watching ? "watching" : ""}" data-watch="${p.id}">
-              ${watching ? "★ Watching" : "☆ Watch"}
+          <div class="card-actions">
+            <a class="btn btn-primary" href="${escapeHtml(p.url)}" target="_blank" rel="noopener">View System ↗</a>
+            <button class="btn btn-watch ${watching ? "watching" : ""}" data-watch="${p.id}" type="button" title="Watch for price drops">
+              ${watching ? "★ Watched" : "☆ Watch"}
             </button>
-            <button class="btn btn-ghost" data-history="${p.id}">History</button>
-            <a class="btn btn-primary" href="${escapeHtml(p.url)}" target="_blank" rel="noopener">Deal →</a>
+            <button class="btn" data-history="${p.id}" type="button" title="Price history">History</button>
           </div>
         </div>
       </article>
     `;
   }).join("");
 
-  grid.querySelectorAll("[data-watch]").forEach((btn) =>
+  bindCardActions(grid);
+}
+
+function renderTableView(list, container) {
+  container.innerHTML = `
+    <div class="deals-table-wrap">
+      <table class="deals-table">
+        <thead>
+          <tr>
+            <th>Retailer</th>
+            <th>System</th>
+            <th>GPU</th>
+            <th>Processor</th>
+            <th>RAM</th>
+            <th>Storage</th>
+            <th>Store Price</th>
+            <th>Est. Landed (IS)</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map((p) => {
+            const watching = localWatchlist.has(p.id);
+            const origLabel = p.region === "Iceland" ? "Local ISK" : `${p.price_original} ${p.currency}`;
+            return `
+              <tr>
+                <td>
+                  <div class="store-identity">
+                    ${storeLogoHtml(p.store)}
+                    <div>
+                      <div class="store-name">${escapeHtml(p.store)}</div>
+                      <div class="store-region">${escapeHtml(p.ships_to_iceland)}</div>
+                    </div>
+                  </div>
+                </td>
+                <td style="max-width:300px;">
+                  <a class="table-title-link" href="${escapeHtml(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.title)}</a>
+                </td>
+                <td><span class="badge ${gpuBadgeClass(p.gpu)}">${escapeHtml(p.gpu.replace("RTX ", ""))}</span></td>
+                <td class="mono">${escapeHtml(p.cpu)}</td>
+                <td class="mono">${p.ram_gb ? p.ram_gb + " GB" : "—"}</td>
+                <td class="mono">${escapeHtml(p.storage_label !== "Unknown" ? p.storage_label : "—")}</td>
+                <td class="mono">
+                  <div>${fmtIsk(p.price_isk)}</div>
+                  <div style="font-size:10px;color:var(--text-muted);">${escapeHtml(origLabel)}</div>
+                </td>
+                <td class="mono" style="font-weight:700;color:var(--text);">${fmtIsk(p.estimated_landed_isk)}</td>
+                <td>
+                  <div style="display:flex;gap:6px;">
+                    <button class="btn btn-watch ${watching ? "watching" : ""}" data-watch="${p.id}" type="button">${watching ? "★" : "☆"}</button>
+                    <a class="btn btn-primary" href="${escapeHtml(p.url)}" target="_blank" rel="noopener">↗</a>
+                  </div>
+                </td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+  bindCardActions(container);
+}
+
+function bindCardActions(root) {
+  root.querySelectorAll("[data-watch]").forEach((btn) =>
     btn.addEventListener("click", () => toggleWatch(btn.dataset.watch))
   );
-  grid.querySelectorAll("[data-history]").forEach((btn) =>
+  root.querySelectorAll("[data-history]").forEach((btn) =>
     btn.addEventListener("click", () => openHistoryModal(btn.dataset.history))
   );
 }
@@ -309,13 +548,13 @@ function openWatchlistModal() {
   const ids = [...localWatchlist];
 
   if (!ids.length) {
-    container.innerHTML = `<p style="color:var(--muted);font-size:13px;">No PCs watched yet. Click "☆ Watch" on any PC card.</p>`;
+    container.innerHTML = `<p style="color:var(--text-muted);font-size:12px;">No systems watched yet. Click "☆ Watch" on any rig to track it.</p>`;
   } else {
     container.innerHTML = ids.map((id) => {
       const p = allProducts.find((x) => x.id === id);
-      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;">
         <span>${p ? escapeHtml(p.title) + " (" + escapeHtml(p.store) + ")" : id}</span>
-        <button class="btn-link" data-remove-watch="${id}">Remove</button>
+        <button class="btn-link" data-remove-watch="${id}" type="button">Remove</button>
       </div>`;
     }).join("");
     container.querySelectorAll("[data-remove-watch]").forEach((btn) =>
@@ -332,7 +571,6 @@ function openWatchlistModal() {
   };
   document.getElementById("watchlist-json-preview").textContent = JSON.stringify(updatedJson, null, 2);
 
-  // Detect GitHub Pages owner/repo if hosted on *.github.io
   const host = window.location.hostname;
   if (host.endsWith(".github.io")) {
     const owner = host.split(".")[0];
@@ -351,11 +589,11 @@ function openStatusModal() {
     <table class="status-table">
       <thead>
         <tr>
-          <th>Store</th>
+          <th>Retailer</th>
           <th>Region</th>
-          <th>Ships to Iceland</th>
+          <th>Iceland Delivery</th>
           <th>Status</th>
-          <th>PCs Found</th>
+          <th>Rigs</th>
           <th>Notes</th>
         </tr>
       </thead>
@@ -366,8 +604,8 @@ function openStatusModal() {
             <td>${escapeHtml(s.region)}</td>
             <td>${escapeHtml(s.ships_to_iceland)}</td>
             <td class="status-${s.status}">${s.status.toUpperCase()}</td>
-            <td>${s.count}</td>
-            <td style="color:var(--muted);font-size:12px;">${escapeHtml(s.error || "OK")}</td>
+            <td class="mono">${s.count}</td>
+            <td style="color:var(--text-muted);font-size:11px;">${escapeHtml(s.error || "Active")}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -383,12 +621,12 @@ function openHistoryModal(id) {
   const chart = document.getElementById("history-chart");
 
   if (!pts.length) {
-    chart.innerHTML = `<p style="color:var(--muted);">No price history recorded yet.</p>`;
+    chart.innerHTML = `<p style="color:var(--text-muted);font-size:12px;">No historical price points recorded yet.</p>`;
   } else {
     chart.innerHTML = pts.map((pt) => `
-      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
-        <span style="color:var(--muted);">${new Date(pt.ts).toLocaleString()}</span>
-        <span><strong>${fmtIsk(pt.landed_isk || pt.price_isk)}</strong></span>
+      <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;">
+        <span class="mono" style="color:var(--text-muted);">${new Date(pt.ts).toLocaleString("en-GB")}</span>
+        <span class="mono"><strong>${fmtIsk(pt.landed_isk || pt.price_isk)}</strong> (Store: ${fmtIsk(pt.price_isk)})</span>
       </div>
     `).join("");
   }
@@ -399,17 +637,24 @@ function bindEvents() {
   document.querySelectorAll("#gpu-chips .chip").forEach((chip) => {
     chip.addEventListener("click", () => {
       const gpu = chip.dataset.gpu;
-      if (activeGpus.has(gpu)) {
-        if (activeGpus.size > 1) {
-          activeGpus.delete(gpu);
-          chip.classList.remove("active");
-        }
+      // 1-click isolate when all GPUs are currently selected
+      if (activeGpus.size === ALL_GPUS.length) {
+        activeGpus = new Set([gpu]);
+      } else if (activeGpus.has(gpu)) {
+        if (activeGpus.size > 1) activeGpus.delete(gpu);
+        else activeGpus = new Set(ALL_GPUS);
       } else {
         activeGpus.add(gpu);
-        chip.classList.add("active");
       }
+      syncGpuChipUI();
       render();
     });
+  });
+
+  document.getElementById("gpu-select-all").addEventListener("click", () => {
+    activeGpus = new Set(ALL_GPUS);
+    syncGpuChipUI();
+    render();
   });
 
   document.getElementById("cpu-filter").addEventListener("change", () => {
@@ -430,6 +675,20 @@ function bindEvents() {
     render();
   });
 
+  document.getElementById("view-cards").addEventListener("click", () => {
+    viewMode = "cards";
+    document.getElementById("view-cards").classList.add("active");
+    document.getElementById("view-table").classList.remove("active");
+    render();
+  });
+
+  document.getElementById("view-table").addEventListener("click", () => {
+    viewMode = "table";
+    document.getElementById("view-table").classList.add("active");
+    document.getElementById("view-cards").classList.remove("active");
+    render();
+  });
+
   document.getElementById("reset-filters").addEventListener("click", () => {
     document.getElementById("search-input").value = "";
     document.getElementById("shipping-filter").value = "all";
@@ -446,8 +705,8 @@ function bindEvents() {
     document.getElementById("stock-only").checked = true;
     document.getElementById("watched-only").checked = false;
     document.getElementById("sort-select").value = "landed_asc";
-    activeGpus = new Set(["RTX 5060 Ti 16GB", "RTX 5070 12GB", "RTX 5070 Ti 16GB", "RTX 5080 16GB"]);
-    document.querySelectorAll("#gpu-chips .chip").forEach((c) => c.classList.add("active"));
+    activeGpus = new Set(ALL_GPUS);
+    syncGpuChipUI();
     render();
   });
 

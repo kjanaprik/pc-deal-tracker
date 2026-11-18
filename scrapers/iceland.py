@@ -42,7 +42,7 @@ def _build_iceland_product(
     if not is_desktop_pc(title, description):
         return None
 
-    specs = extract_specs(title, description)
+    specs = extract_specs(title, description, store=store)
     price_int = int(round(price_isk))
     orig_int = int(round(original_price_isk)) if original_price_isk and original_price_isk > price_isk else None
     discount_pct = round(((orig_int - price_int) / orig_int) * 100, 1) if orig_int else 0.0

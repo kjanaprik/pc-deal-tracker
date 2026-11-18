@@ -258,21 +258,32 @@ def _scrape_generic_eu_site(
             else:
                 continue
             soup = BeautifulSoup(html, "lxml")
-            for card in soup.select(".product, .product-box, .product-card, article"):
-                link_el = card.select_one("a[href]")
+            for card in soup.select(".product-tile, .product, .product-box, .product-card, article"):
+                link_el = card.select_one("a.link.d-block, a[href*='.html'], a[href]")
                 if not link_el:
                     continue
                 full_url = urljoin(base_url, link_el.get("href", ""))
-                title_el = card.select_one("h2, h3, .product-title, .title") or link_el
-                title = title_el.get_text(" ", strip=True)
-                price_el = card.select_one(".price, .product-price")
-                price_val = parse_price(price_el.get_text(" ", strip=True) if price_el else "", currency)
+                title_el = card.select_one("a.link.d-block, h2, h3, .product-title, .title, .h6")
+                title = title_el.get_text(" ", strip=True) if title_el else ""
+                if not title:
+                    for a in card.select("a[href]"):
+                        txt = a.get_text(" ", strip=True)
+                        if len(txt) > 10:
+                            title = txt
+                            break
+                if not title:
+                    continue
+                price_el = card.select_one(".price, .product-price, [class*='price']")
+                price_val = parse_price(price_el.get_text(" ", strip=True) if price_el else card.get_text(" "), currency)
                 if not price_val or price_val < 500:
                     continue
+                img_el = card.select_one("img")
+                img_url = img_el.get("src", "") if img_el else ""
                 prod = _build_eu_product(
                     store=store, title=title, url=full_url, price=price_val,
                     currency=currency, fx_rates=fx_rates, local_vat=local_vat,
-                    ships_to_iceland="Direct", description=card.get_text(" ", strip=True),
+                    ships_to_iceland="Direct", image_url=img_url,
+                    description=card.get_text(" ", strip=True),
                     notes=notes,
                 )
                 if prod:
