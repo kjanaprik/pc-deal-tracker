@@ -156,60 +156,112 @@ def scrape_bestbuy(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
 
 
 def scrape_amazon_us(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
-    """Amazon.com - Uses RAINFOREST_API_KEY if configured."""
+    """Amazon.com - Uses RAINFOREST_API_KEY if set, else direct HTML on self-hosted runner."""
     store = "Amazon.com"
     t0 = time.monotonic()
     rainforest_key = os.getenv("RAINFOREST_API_KEY", "").strip()
-    if not rainforest_key:
-        return [], StoreResult(
-            store=store,
-            region="USA/Canada",
-            ships_to_iceland="Direct (Amazon Global)",
-            status="skipped",
-            count=0,
-            error="Set RAINFOREST_API_KEY in GitHub Secrets to scrape Amazon.com",
-            duration_ms=int((time.monotonic() - t0) * 1000),
-        )
-
     products: dict[str, Product] = {}
-    try:
-        for term in SEARCH_TERMS:
-            r = requests.get(
-                "https://api.rainforestapi.com/request",
-                params={
-                    "api_key": rainforest_key,
-                    "type": "search",
-                    "amazon_domain": "amazon.com",
-                    "search_term": f"Gaming Desktop PC {term}",
-                },
-                timeout=25,
+    if rainforest_key:
+        try:
+            for term in SEARCH_TERMS:
+                r = requests.get(
+                    "https://api.rainforestapi.com/request",
+                    params={
+                        "api_key": rainforest_key,
+                        "type": "search",
+                        "amazon_domain": "amazon.com",
+                        "search_term": f"Gaming Desktop PC {term}",
+                    },
+                    timeout=25,
+                )
+                r.raise_for_status()
+                for item in r.json().get("search_results", []):
+                    price_info = item.get("price") or {}
+                    price_val = price_info.get("value")
+                    if not price_val or float(price_val) < 500:
+                        continue
+                    prod = _build_na_product(
+                        store=store,
+                        title=item.get("title", ""),
+                        url=item.get("link", "https://www.amazon.com"),
+                        price_usd=float(price_val),
+                        fx_rates=fx_rates,
+                        ships_to_iceland="Direct (Amazon Global)",
+                        image_url=item.get("image", ""),
+                        notes="Amazon Global calculates Icelandic VAT/import fees at checkout",
+                    )
+                    if prod:
+                        products[prod.id] = prod
+            return list(products.values()), StoreResult(
+                store=store, region="USA/Canada", ships_to_iceland="Direct (Amazon Global)",
+                status="ok", count=len(products), duration_ms=int((time.monotonic() - t0) * 1000)
             )
-            r.raise_for_status()
-            for item in r.json().get("search_results", []):
-                price_info = item.get("price") or {}
-                price_val = price_info.get("value")
-                if not price_val or float(price_val) < 500:
+        except Exception as exc:
+            return [], StoreResult(
+                store=store, region="USA/Canada", ships_to_iceland="Direct (Amazon Global)",
+                status="error", count=0, error=str(exc),
+                duration_ms=int((time.monotonic() - t0) * 1000),
+            )
+
+    blocked = False
+    try:
+        for term in ("gaming desktop rtx 5060 ti", "gaming desktop rtx 5070", "gaming desktop rtx 5080"):
+            r = requests.get(
+                "https://www.amazon.com/s",
+                params={"k": term},
+                headers=DEFAULT_HEADERS,
+                timeout=15,
+            )
+            if r.status_code in (202, 403, 503) or len(r.text) < 20000:
+                blocked = True
+                continue
+            soup = BeautifulSoup(r.text, "lxml")
+            for card in soup.select('[data-component-type="s-search-result"]'):
+                title_el = card.select_one('[data-cy="title-recipe"] a span, h2 a span, h2 span, h2')
+                link_el = card.select_one('[data-cy="title-recipe"] a[href], h2 a[href], a.a-link-normal[href*="/dp/"]')
+                price_el = card.select_one(".a-price .a-offscreen")
+                if not (title_el and link_el and price_el):
                     continue
+                title = title_el.get_text(" ", strip=True)
+                price_val = parse_price(price_el.get_text(strip=True), "USD")
+                if not price_val or price_val < 500:
+                    continue
+                full_url = urljoin("https://www.amazon.com", link_el.get("href", "").split("ref=")[0])
+                img_el = card.select_one("img.s-image")
+                img_url = img_el.get("src", "") if img_el else ""
+                old_el = card.select_one(".a-text-price .a-offscreen")
+                old_val = parse_price(old_el.get_text(strip=True), "USD") if old_el else None
+
                 prod = _build_na_product(
                     store=store,
-                    title=item.get("title", ""),
-                    url=item.get("link", "https://www.amazon.com"),
-                    price_usd=float(price_val),
+                    title=title,
+                    url=full_url,
+                    price_usd=price_val,
                     fx_rates=fx_rates,
                     ships_to_iceland="Direct (Amazon Global)",
-                    image_url=item.get("image", ""),
+                    image_url=img_url,
+                    original_price_usd=old_val,
                     notes="Amazon Global calculates Icelandic VAT/import fees at checkout",
                 )
                 if prod:
                     products[prod.id] = prod
+            time.sleep(1.0)
+
+        if blocked and not products:
+            return [], StoreResult(
+                store=store, region="USA/Canada", ships_to_iceland="Direct (Amazon Global)",
+                status="blocked", count=0,
+                error="Amazon.com bot challenge (set RAINFOREST_API_KEY to bypass)",
+                duration_ms=int((time.monotonic() - t0) * 1000),
+            )
         return list(products.values()), StoreResult(
             store=store, region="USA/Canada", ships_to_iceland="Direct (Amazon Global)",
             status="ok", count=len(products), duration_ms=int((time.monotonic() - t0) * 1000)
         )
     except Exception as exc:
-        return [], StoreResult(
+        return list(products.values()), StoreResult(
             store=store, region="USA/Canada", ships_to_iceland="Direct (Amazon Global)",
-            status="error", count=0, error=str(exc),
+            status="error", count=len(products), error=str(exc),
             duration_ms=int((time.monotonic() - t0) * 1000),
         )
 

@@ -305,11 +305,11 @@ def _scrape_amazon_eu(
     local_vat: float,
     fx_rates: dict[str, float],
 ) -> tuple[list[Product], StoreResult]:
-    """Amazon.de / Amazon.co.uk - Supports Rainforest API or ScraperAPI."""
+    """Amazon.de / Amazon.co.uk - Uses Rainforest API if set, else direct HTML on self-hosted runner."""
     t0 = time.monotonic()
     rainforest_key = os.getenv("RAINFOREST_API_KEY", "").strip()
+    products: dict[str, Product] = {}
     if rainforest_key:
-        products: dict[str, Product] = {}
         try:
             for term in SEARCH_TERMS:
                 r = requests.get(
@@ -354,15 +354,72 @@ def _scrape_amazon_eu(
                 duration_ms=int((time.monotonic() - t0) * 1000),
             )
 
-    return [], StoreResult(
-        store=store,
-        region="Europe",
-        ships_to_iceland="Direct",
-        status="skipped",
-        count=0,
-        error="Set RAINFOREST_API_KEY (or SCRAPERAPI_KEY) in GitHub Secrets to scrape Amazon",
-        duration_ms=int((time.monotonic() - t0) * 1000),
-    )
+    # Direct HTML scraping (works from residential self-hosted runner)
+    blocked = False
+    try:
+        for term in ("gaming desktop rtx 5060 ti", "gaming desktop rtx 5070", "gaming desktop rtx 5080"):
+            r = requests.get(
+                f"https://www.{domain}/s",
+                params={"k": term},
+                headers=DEFAULT_HEADERS,
+                timeout=15,
+            )
+            if r.status_code in (202, 403, 503) or len(r.text) < 20000:
+                blocked = True
+                continue
+            soup = BeautifulSoup(r.text, "lxml")
+            for card in soup.select('[data-component-type="s-search-result"]'):
+                title_el = card.select_one('[data-cy="title-recipe"] a span, h2 a span, h2 span, h2')
+                link_el = card.select_one('[data-cy="title-recipe"] a[href], h2 a[href], a.a-link-normal[href*="/dp/"]')
+                price_el = card.select_one(".a-price .a-offscreen")
+                if not (title_el and link_el and price_el):
+                    continue
+                title = title_el.get_text(" ", strip=True)
+                price_txt = price_el.get_text(strip=True)
+                card_cur = "USD" if ("USD" in price_txt or "$" in price_txt) else ("GBP" if "£" in price_txt else currency)
+                price_val = parse_price(price_txt, card_cur)
+                if not price_val or price_val < 500:
+                    continue
+                full_url = urljoin(f"https://www.{domain}", link_el.get("href", "").split("ref=")[0])
+                img_el = card.select_one("img.s-image")
+                img_url = img_el.get("src", "") if img_el else ""
+                old_el = card.select_one(".a-text-price .a-offscreen")
+                old_val = parse_price(old_el.get_text(strip=True), card_cur) if old_el else None
+
+                prod = _build_eu_product(
+                    store=store,
+                    title=title,
+                    url=full_url,
+                    price=price_val,
+                    currency=card_cur,
+                    fx_rates=fx_rates,
+                    local_vat=0.0 if card_cur == "USD" else local_vat,
+                    ships_to_iceland="Direct (Amazon Global)",
+                    image_url=img_url,
+                    original_price=old_val,
+                    notes="Amazon Global calculates Icelandic VAT/import fees at checkout",
+                )
+                if prod:
+                    products[prod.id] = prod
+            time.sleep(1.0)
+
+        if blocked and not products:
+            return [], StoreResult(
+                store=store, region="Europe", ships_to_iceland="Direct",
+                status="blocked", count=0,
+                error="Amazon bot challenge (set RAINFOREST_API_KEY to bypass)",
+                duration_ms=int((time.monotonic() - t0) * 1000),
+            )
+        return list(products.values()), StoreResult(
+            store=store, region="Europe", ships_to_iceland="Direct",
+            status="ok", count=len(products), duration_ms=int((time.monotonic() - t0) * 1000)
+        )
+    except Exception as exc:
+        return list(products.values()), StoreResult(
+            store=store, region="Europe", ships_to_iceland="Direct",
+            status="error", count=len(products), error=str(exc),
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
 
 
 def scrape_all_europe(fx_rates: dict[str, float]) -> tuple[list[Product], list[StoreResult]]:
