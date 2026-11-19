@@ -11,9 +11,14 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: scrape-deals
+  cancel-in-progress: true
+
 jobs:
   scrape-and-notify:
     runs-on: self-hosted
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,7 +37,7 @@ jobs:
           SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-        run: .venv/bin/python scripts/scrape_all.py
+        run: caffeinate -i .venv/bin/python scripts/scrape_all.py
 
       - name: Check watchlist & send email alerts
         env:
