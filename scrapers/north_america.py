@@ -660,6 +660,10 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
                     notes="Ships direct to Iceland via DHL Express (via Google Shopping / SerpApi)",
                 )
                 if prod:
+                    # Google Shopping URLs share the base path /search?..., so key by unique product_id or title
+                    gshop_pid = str(item.get("product_id") or "").strip()
+                    if "google.com/search" in link.lower():
+                        prod.id = make_product_id(store, f"https://bhphotovideo.com/gshop/{gshop_pid or title}")
                     products[prod.id] = prod
                     bh_kept += 1
                 elif len(bh_rejected) < 5:
