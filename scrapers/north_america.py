@@ -480,9 +480,9 @@ def scrape_cyberpowerpc(fx_rates: dict[str, float]) -> tuple[list[Product], Stor
 SERPAPI_STATE_PATH = Path(__file__).resolve().parent.parent / "data" / "serpapi_state.json"
 
 BHPHOTO_SERPAPI_QUERIES = [
-    "B&H Photo gaming desktop RTX 5080",
-    "B&H Photo gaming desktop RTX 5070 Ti",
-    "B&H Photo gaming desktop RTX 5060 Ti 16GB",
+    ('RTX 5080 16GB', 'site:bhphotovideo.com/c/product/ "Desktop" "RTX 5080"'),
+    ('RTX 5070 Ti 16GB', 'site:bhphotovideo.com/c/product/ "Desktop" "RTX 5070 Ti"'),
+    ('RTX 5060 Ti 16GB', 'site:bhphotovideo.com/c/product/ "Desktop" "RTX 5060 Ti" "16GB"'),
 ]
 
 
@@ -549,16 +549,15 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
 
     products: dict[str, Product] = {}
     try:
-        for query in BHPHOTO_SERPAPI_QUERIES:
+        for expected_gpu, query in BHPHOTO_SERPAPI_QUERIES:
             r = requests.get(
                 "https://serpapi.com/search.json",
                 params={
-                    "engine": "google_shopping",
+                    "engine": "google",
                     "q": query,
                     "gl": "us",
                     "hl": "en",
-                    "num": "40",
-                    "direct_link": "true",
+                    "num": "30",
                     "api_key": serpapi_key,
                 },
                 timeout=25,
@@ -568,55 +567,68 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
             if data.get("error"):
                 raise RuntimeError(f"SerpApi error: {data['error']}")
 
-            results_list = data.get("shopping_results", [])
+            results_list = data.get("organic_results", [])
             bh_seen = 0
+            bh_priced = 0
             bh_kept = 0
-            sample_sources = []
             for item in results_list:
-                source = str(item.get("source") or "")
-                link = str(item.get("link") or item.get("product_link") or "")
-                if source and len(sample_sources) < 8 and source not in sample_sources:
-                    sample_sources.append(source)
-                # Only keep genuine B&H Photo listings
-                if "b&h" not in source.lower() and "bhphotovideo.com" not in link.lower():
+                link = str(item.get("link") or "").strip()
+                if "bhphotovideo.com/c/product/" not in link.lower():
                     continue
                 bh_seen += 1
 
-                title = str(item.get("title") or "").strip()
-                if not title or not link:
+                raw_title = str(item.get("title") or "").strip()
+                # Clean trailing "- B&H Photo Video" / "| B&H Photo"
+                title = raw_title
+                for suffix in (" - B&H Photo Video", " | B&H Photo Video", " - B&H Photo", " | B&H Photo", " - B&H"):
+                    if title.endswith(suffix):
+                        title = title[: -len(suffix)].strip()
+                if not title:
                     continue
 
-                price_val = item.get("extracted_price")
-                if price_val is None:
-                    price_val = parse_price(str(item.get("price") or ""), "USD")
-                else:
-                    try:
-                        price_val = float(price_val)
-                    except (TypeError, ValueError):
-                        price_val = None
+                snippet = str(item.get("snippet") or "")
+                rich = item.get("rich_snippet") or {}
+                top = rich.get("top") or {}
+                bottom = rich.get("bottom") or {}
+                top_det = top.get("detected_extensions") or {}
+                bot_det = bottom.get("detected_extensions") or {}
+                extensions = list(top.get("extensions") or []) + list(bottom.get("extensions") or [])
+                ext_text = " ".join(str(x) for x in extensions if x)
+
+                price_val: Optional[float] = None
+                for candidate in (top_det.get("price"), bot_det.get("price")):
+                    if candidate is not None:
+                        try:
+                            price_val = float(candidate)
+                            break
+                        except (TypeError, ValueError):
+                            pass
+                if not price_val:
+                    for ext in extensions:
+                        if "$" in str(ext):
+                            price_val = parse_price(str(ext), "USD")
+                            if price_val and price_val >= 500:
+                                break
                 if not price_val or price_val < 500:
                     continue
+                bh_priced += 1
 
-                old_val = item.get("extracted_old_price")
-                if old_val is None and item.get("old_price"):
-                    old_val = parse_price(str(item.get("old_price")), "USD")
-                elif old_val is not None:
-                    try:
-                        old_val = float(old_val)
-                    except (TypeError, ValueError):
-                        old_val = None
+                in_stock = True
+                if top_det.get("in_stock") is False or bot_det.get("in_stock") is False:
+                    in_stock = False
+                elif any(
+                    oos in f"{ext_text} {snippet}".lower()
+                    for oos in ("out of stock", "sold out", "discontinued", "temporarily out of stock")
+                ):
+                    in_stock = False
 
-                extensions = item.get("extensions") or []
-                ext_text = " ".join(str(x) for x in extensions if x)
-                snippet = str(item.get("snippet") or "")
-                tag = str(item.get("tag") or "")
-                delivery = str(item.get("delivery") or "")
-                description = " ".join(part for part in (snippet, ext_text, tag) if part)
-
-                in_stock = not any(
-                    oos in f"{ext_text} {delivery}".lower()
-                    for oos in ("out of stock", "sold out", "temporarily out of stock")
-                )
+                # Include snippet & extensions so detect_target_gpu / extract_specs see full B&H Key Features.
+                # Only fall back to expected_gpu hint if the snippet confirms the GPU isn't a lower-tier 8GB variant.
+                description = " ".join(part for part in (snippet, ext_text) if part)
+                if not detect_target_gpu(f"{title} {description}"):
+                    # Google matched the exact quoted GPU term on the B&H page even if truncated from snippet
+                    if "8gb" not in f"{title} {description}".lower():
+                        description = f"{description} {expected_gpu}".strip()
 
                 prod = _build_na_product(
                     store=store,
@@ -626,10 +638,10 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
                     fx_rates=fx_rates,
                     ships_to_iceland="Direct",
                     image_url=str(item.get("thumbnail") or ""),
-                    original_price_usd=old_val if old_val and old_val > price_val else None,
+                    original_price_usd=None,
                     description=description,
                     in_stock=in_stock,
-                    notes="Ships direct to Iceland via DHL Express (via Google Shopping / SerpApi)",
+                    notes="Ships direct to Iceland via DHL Express (indexed via SerpApi)",
                 )
                 if prod:
                     products[prod.id] = prod
@@ -637,7 +649,7 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
 
             print(
                 f"[B&H SerpApi] q={query!r} -> total={len(results_list)}, "
-                f"bh_seen={bh_seen}, bh_kept={bh_kept}, sources={sample_sources}"
+                f"bh_seen={bh_seen}, bh_priced={bh_priced}, bh_kept={bh_kept}"
             )
 
         state["bhphoto_last_run_ts"] = now_ts
