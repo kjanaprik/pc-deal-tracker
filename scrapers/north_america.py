@@ -480,9 +480,9 @@ def scrape_cyberpowerpc(fx_rates: dict[str, float]) -> tuple[list[Product], Stor
 SERPAPI_STATE_PATH = Path(__file__).resolve().parent.parent / "data" / "serpapi_state.json"
 
 BHPHOTO_SERPAPI_QUERIES = [
-    '"B&H" desktop computer "RTX 5080"',
-    '"B&H" desktop computer "RTX 5070 Ti"',
-    '"B&H" desktop computer "RTX 5060 Ti" 16GB',
+    "B&H Photo gaming desktop RTX 5080",
+    "B&H Photo gaming desktop RTX 5070 Ti",
+    "B&H Photo gaming desktop RTX 5060 Ti 16GB",
 ]
 
 
@@ -568,12 +568,19 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
             if data.get("error"):
                 raise RuntimeError(f"SerpApi error: {data['error']}")
 
-            for item in data.get("shopping_results", []):
+            results_list = data.get("shopping_results", [])
+            bh_seen = 0
+            bh_kept = 0
+            sample_sources = []
+            for item in results_list:
                 source = str(item.get("source") or "")
                 link = str(item.get("link") or item.get("product_link") or "")
+                if source and len(sample_sources) < 8 and source not in sample_sources:
+                    sample_sources.append(source)
                 # Only keep genuine B&H Photo listings
                 if "b&h" not in source.lower() and "bhphotovideo.com" not in link.lower():
                     continue
+                bh_seen += 1
 
                 title = str(item.get("title") or "").strip()
                 if not title or not link:
@@ -626,6 +633,12 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
                 )
                 if prod:
                     products[prod.id] = prod
+                    bh_kept += 1
+
+            print(
+                f"[B&H SerpApi] q={query!r} -> total={len(results_list)}, "
+                f"bh_seen={bh_seen}, bh_kept={bh_kept}, sources={sample_sources}"
+            )
 
         state["bhphoto_last_run_ts"] = now_ts
         state["bhphoto_last_run_iso"] = now.isoformat()
