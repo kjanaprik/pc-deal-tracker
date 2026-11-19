@@ -66,6 +66,20 @@ let viewMode = "cards"; // "cards" | "table"
 
 const fmtIsk = (n) => `${Math.round(n).toLocaleString("de-DE")} kr.`;
 
+function isExVatMode() {
+  const el = document.getElementById("ex-vat-toggle");
+  return Boolean(el && el.checked);
+}
+
+function effectiveLandedIsk(p) {
+  if (!isExVatMode()) return p.estimated_landed_isk;
+  if (p.region === "Iceland") {
+    return Math.round(p.estimated_landed_isk / 1.24);
+  }
+  // Remove the 24% Icelandic import VAT from (goods_ex_vat + shipping) * 1.24 + 2500
+  return Math.round((p.estimated_landed_isk - 2500) / 1.24 + 2500);
+}
+
 function updateCountdown() {
   const el = document.getElementById("bf-countdown");
   const bf = new Date("2026-11-27T00:00:00Z");
@@ -253,7 +267,7 @@ function getFilteredProducts() {
     if (pcBrand !== "all" && (p.brand || "Custom / Prebuilt") !== pcBrand) return false;
     if (minRam > 0 && (!p.ram_gb || p.ram_gb < minRam)) return false;
     if (minStorage > 0 && (!p.storage_gb || p.storage_gb < minStorage)) return false;
-    if (maxPrice < 1200000 && p.estimated_landed_isk > maxPrice) return false;
+    if (maxPrice < 1200000 && effectiveLandedIsk(p) > maxPrice) return false;
     if (saleOnly && !p.on_sale && !(p.price_drop_pct > 0)) return false;
     if (stockOnly && !p.in_stock) return false;
     if (watchedOnly && !localWatchlist.has(p.id)) return false;
@@ -265,8 +279,8 @@ function getFilteredProducts() {
   });
 
   filtered.sort((a, b) => {
-    if (sortBy === "landed_asc") return a.estimated_landed_isk - b.estimated_landed_isk;
-    if (sortBy === "landed_desc") return b.estimated_landed_isk - a.estimated_landed_isk;
+    if (sortBy === "landed_asc") return effectiveLandedIsk(a) - effectiveLandedIsk(b);
+    if (sortBy === "landed_desc") return effectiveLandedIsk(b) - effectiveLandedIsk(a);
     if (sortBy === "store_asc") return a.price_isk - b.price_isk;
     if (sortBy === "store_desc") return b.price_isk - a.price_isk;
     if (sortBy === "discount_desc") return (b.discount_pct || 0) - (a.discount_pct || 0);
@@ -290,7 +304,7 @@ function renderBenchmarks() {
 
   wrap.innerHTML = ALL_GPUS.map((gpu) => {
     const matching = allProducts.filter((p) => p.gpu === gpu && p.in_stock);
-    const best = matching.reduce((min, p) => (!min || p.estimated_landed_isk < min.estimated_landed_isk ? p : min), null);
+    const best = matching.reduce((min, p) => (!min || effectiveLandedIsk(p) < effectiveLandedIsk(min) ? p : min), null);
     const isIsolated = activeGpus.size === 1 && activeGpus.has(gpu);
     return `
       <button type="button" class="bench-card ${isIsolated ? "active-tier" : ""}" data-bench-gpu="${gpu}">
@@ -299,10 +313,10 @@ function renderBenchmarks() {
             <span>${gpu.replace("RTX ", "")}</span>
             <span class="bench-count">${matching.length} rigs</span>
           </div>
-          <div class="bench-price">${best ? fmtIsk(best.estimated_landed_isk) : "—"}</div>
+          <div class="bench-price">${best ? fmtIsk(effectiveLandedIsk(best)) : "—"}</div>
         </div>
         <div class="bench-meta">
-          <div>Lowest Landed</div>
+          <div>${isExVatMode() ? "Lowest Ex-VAT" : "Lowest Landed"}</div>
           <div class="bench-store">${best ? escapeHtml(best.store) : "No stock"}</div>
         </div>
       </button>
@@ -449,8 +463,8 @@ function render() {
         <div>
           <div class="price-box">
             <div>
-              <span class="price-col-label">Est. Landed (IS)</span>
-              <div class="price-landed">${fmtIsk(p.estimated_landed_isk)}${oldPrice}</div>
+              <span class="price-col-label">${isExVatMode() ? "Est. Landed (Ex-VSK)" : "Est. Landed (IS)"}</span>
+              <div class="price-landed">${fmtIsk(effectiveLandedIsk(p))}${oldPrice}</div>
             </div>
             <div class="price-store-col">
               <span class="price-col-label">Store Price</span>
@@ -516,7 +530,7 @@ function renderTableView(list, container) {
                   <div>${fmtIsk(p.price_isk)}</div>
                   <div style="font-size:10px;color:var(--text-muted);">${escapeHtml(origLabel)}</div>
                 </td>
-                <td class="mono" style="font-weight:700;color:var(--text);">${fmtIsk(p.estimated_landed_isk)}</td>
+                <td class="mono" style="font-weight:700;color:var(--text);">${fmtIsk(effectiveLandedIsk(p))}</td>
                 <td>
                   <div style="display:flex;gap:6px;">
                     <button class="btn btn-watch ${watching ? "watching" : ""}" data-watch="${p.id}" type="button">${watching ? "★" : "☆"}</button>
@@ -663,7 +677,7 @@ function bindEvents() {
   });
 
   ["search-input", "shipping-filter", "store-filter", "cpu-model-filter", "brand-filter",
-   "ram-filter", "storage-filter", "sale-only", "stock-only", "watched-only", "sort-select"].forEach((id) => {
+   "ram-filter", "storage-filter", "ex-vat-toggle", "sale-only", "stock-only", "watched-only", "sort-select"].forEach((id) => {
     document.getElementById(id).addEventListener("input", render);
     document.getElementById(id).addEventListener("change", render);
   });
@@ -701,6 +715,7 @@ function bindEvents() {
     document.getElementById("storage-filter").value = "0";
     maxPriceEl.value = "1200000";
     document.getElementById("max-price-label").textContent = "No limit";
+    document.getElementById("ex-vat-toggle").checked = false;
     document.getElementById("sale-only").checked = false;
     document.getElementById("stock-only").checked = true;
     document.getElementById("watched-only").checked = false;
