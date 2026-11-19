@@ -1,0 +1,59 @@
+name: Scrape Residential IP Stores (Mac Office Hours)
+
+on:
+  schedule:
+    # Mon-Fri at 10:00 and 15:00 UTC while your work Mac is awake (refreshes Amazon.com / Amazon.de)
+    - cron: "0 10,15 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scrape-deals
+  cancel-in-progress: false
+
+jobs:
+  scrape-mac:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python venv & dependencies
+        run: |
+          if [ ! -d ".venv" ]; then python3 -m venv .venv; fi
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/playwright install chromium
+
+      - name: Run scrapers (residential IP)
+        env:
+          BESTBUY_API_KEY: ${{ secrets.BESTBUY_API_KEY }}
+          RAINFOREST_API_KEY: ${{ secrets.RAINFOREST_API_KEY }}
+          SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: caffeinate -i .venv/bin/python scripts/scrape_all.py
+
+      - name: Check watchlist & send email/ntfy alerts
+        env:
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: .venv/bin/python scripts/notify.py
+
+      - name: Commit updated deal data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/deals.json data/history.json data/notified.json || true
+          git diff --staged --quiet || git commit -m "chore: update gaming PC deals (Mac runner) [skip ci]"
+          git pull --rebase || true
+          git push

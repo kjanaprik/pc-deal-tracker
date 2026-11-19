@@ -1,8 +1,8 @@
-name: Scrape Gaming PC Deals & Notify
+name: Scrape Gaming PC Deals & Notify (24/7 Cloud)
 
 on:
   schedule:
-    # Regular schedule: every 2 hours
+    # Regular schedule: every 2 hours (24/7 on GitHub Cloud)
     - cron: "0 */2 * * *"
     # Black Friday / Cyber Monday weekend burst: every 30 minutes (Nov 26-30)
     - cron: "*/30 * 26-30 11 *"
@@ -23,18 +23,23 @@ concurrency:
 
 jobs:
   scrape-and-notify:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python venv & dependencies
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies & Playwright Chromium
         run: |
-          if [ ! -d ".venv" ]; then python3 -m venv .venv; fi
-          .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install -r requirements.txt
-          .venv/bin/playwright install chromium
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          playwright install chromium
 
       - name: Run scrapers
         env:
@@ -43,7 +48,7 @@ jobs:
           SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-        run: caffeinate -i .venv/bin/python scripts/scrape_all.py
+        run: python scripts/scrape_all.py
 
       - name: Check watchlist & send email/ntfy alerts
         env:
@@ -56,7 +61,7 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           TEST_NTFY: ${{ github.event.inputs.test_ntfy || '0' }}
-        run: .venv/bin/python scripts/notify.py
+        run: python scripts/notify.py
 
       - name: Commit updated deal data
         run: |
@@ -64,4 +69,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/deals.json data/history.json data/notified.json || true
           git diff --staged --quiet || git commit -m "chore: update gaming PC deals [skip ci]"
+          git pull --rebase || true
           git push
