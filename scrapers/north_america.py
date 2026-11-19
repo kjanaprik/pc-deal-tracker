@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urljoin
 
@@ -474,6 +477,181 @@ def scrape_cyberpowerpc(fx_rates: dict[str, float]) -> tuple[list[Product], Stor
         )
 
 
+SERPAPI_STATE_PATH = Path(__file__).resolve().parent.parent / "data" / "serpapi_state.json"
+
+BHPHOTO_SERPAPI_QUERIES = [
+    '"B&H" desktop computer "RTX 5080"',
+    '"B&H" desktop computer "RTX 5070 Ti"',
+    '"B&H" desktop computer "RTX 5060 Ti" 16GB',
+]
+
+
+def _load_serpapi_state() -> dict:
+    if SERPAPI_STATE_PATH.exists():
+        try:
+            return json.loads(SERPAPI_STATE_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_serpapi_state(state: dict) -> None:
+    SERPAPI_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SERPAPI_STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
+    """B&H Photo (bhphotovideo.com) via SerpApi Google Shopping index.
+
+    Uses a quota-friendly cooldown (12h normally, 4h during Black Friday Nov 26-30)
+    so 3 queries/refresh stays comfortably within SerpApi's 250 free searches/month.
+    Cached B&H listings are preserved by scrape_all.py during cooldown windows.
+    """
+    store = "B&H Photo"
+    t0 = time.monotonic()
+    serpapi_key = os.getenv("SERPAPI_KEY", "").strip()
+    if not serpapi_key:
+        return [], StoreResult(
+            store=store,
+            region="USA/Canada",
+            ships_to_iceland="Direct",
+            status="blocked",
+            count=0,
+            error="Set SERPAPI_KEY secret to enable automated B&H Photo Google Shopping tracking",
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+
+    now = datetime.now(timezone.utc)
+    now_ts = now.timestamp()
+    force = os.getenv("FORCE_SERPAPI", "").strip().lower() in ("1", "true", "yes")
+    is_bf_window = now.month == 11 and 26 <= now.day <= 30
+    default_interval = 4.0 if is_bf_window else 12.0
+    try:
+        interval_hours = float(os.getenv("SERPAPI_INTERVAL_HOURS", "").strip() or default_interval)
+    except ValueError:
+        interval_hours = default_interval
+
+    state = _load_serpapi_state()
+    last_ts = float(state.get("bhphoto_last_run_ts", 0.0) or 0.0)
+    elapsed_hours = (now_ts - last_ts) / 3600.0 if last_ts else 9999.0
+
+    if not force and elapsed_hours < interval_hours:
+        remaining = max(0.1, interval_hours - elapsed_hours)
+        return [], StoreResult(
+            store=store,
+            region="USA/Canada",
+            ships_to_iceland="Direct",
+            status="ok",
+            count=0,
+            error=f"SerpApi quota cooldown ({remaining:.1f}h until next B&H refresh)",
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+
+    products: dict[str, Product] = {}
+    try:
+        for query in BHPHOTO_SERPAPI_QUERIES:
+            r = requests.get(
+                "https://serpapi.com/search.json",
+                params={
+                    "engine": "google_shopping",
+                    "q": query,
+                    "gl": "us",
+                    "hl": "en",
+                    "num": "40",
+                    "direct_link": "true",
+                    "api_key": serpapi_key,
+                },
+                timeout=25,
+            )
+            r.raise_for_status()
+            data = r.json()
+            if data.get("error"):
+                raise RuntimeError(f"SerpApi error: {data['error']}")
+
+            for item in data.get("shopping_results", []):
+                source = str(item.get("source") or "")
+                link = str(item.get("link") or item.get("product_link") or "")
+                # Only keep genuine B&H Photo listings
+                if "b&h" not in source.lower() and "bhphotovideo.com" not in link.lower():
+                    continue
+
+                title = str(item.get("title") or "").strip()
+                if not title or not link:
+                    continue
+
+                price_val = item.get("extracted_price")
+                if price_val is None:
+                    price_val = parse_price(str(item.get("price") or ""), "USD")
+                else:
+                    try:
+                        price_val = float(price_val)
+                    except (TypeError, ValueError):
+                        price_val = None
+                if not price_val or price_val < 500:
+                    continue
+
+                old_val = item.get("extracted_old_price")
+                if old_val is None and item.get("old_price"):
+                    old_val = parse_price(str(item.get("old_price")), "USD")
+                elif old_val is not None:
+                    try:
+                        old_val = float(old_val)
+                    except (TypeError, ValueError):
+                        old_val = None
+
+                extensions = item.get("extensions") or []
+                ext_text = " ".join(str(x) for x in extensions if x)
+                snippet = str(item.get("snippet") or "")
+                tag = str(item.get("tag") or "")
+                delivery = str(item.get("delivery") or "")
+                description = " ".join(part for part in (snippet, ext_text, tag) if part)
+
+                in_stock = not any(
+                    oos in f"{ext_text} {delivery}".lower()
+                    for oos in ("out of stock", "sold out", "temporarily out of stock")
+                )
+
+                prod = _build_na_product(
+                    store=store,
+                    title=title,
+                    url=link,
+                    price_usd=price_val,
+                    fx_rates=fx_rates,
+                    ships_to_iceland="Direct",
+                    image_url=str(item.get("thumbnail") or ""),
+                    original_price_usd=old_val if old_val and old_val > price_val else None,
+                    description=description,
+                    in_stock=in_stock,
+                    notes="Ships direct to Iceland via DHL Express (via Google Shopping / SerpApi)",
+                )
+                if prod:
+                    products[prod.id] = prod
+
+        state["bhphoto_last_run_ts"] = now_ts
+        state["bhphoto_last_run_iso"] = now.isoformat()
+        state["bhphoto_last_count"] = len(products)
+        _save_serpapi_state(state)
+
+        return list(products.values()), StoreResult(
+            store=store,
+            region="USA/Canada",
+            ships_to_iceland="Direct",
+            status="ok",
+            count=len(products),
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+    except Exception as exc:
+        return list(products.values()), StoreResult(
+            store=store,
+            region="USA/Canada",
+            ships_to_iceland="Direct",
+            status="error",
+            count=len(products),
+            error=str(exc),
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+
+
 def _parse_usd(s: str) -> Optional[float]:
     return parse_price(s, "USD")
 
@@ -485,17 +663,7 @@ def scrape_all_north_america(fx_rates: dict[str, float]) -> tuple[list[Product],
     jobs = [
         scrape_bestbuy(fx_rates),
         scrape_amazon_us(fx_rates),
-        _scrape_via_scraperapi_or_direct(
-            store="B&H Photo",
-            urls=[
-                "https://www.bhphotovideo.com/c/products/Desktop-Computers/ci/9594?filters=fct_graphic-card_3052%3Anvidia-geforce-rtx-5080%7Cnvidia-geforce-rtx-5070-ti%7Cnvidia-geforce-rtx-5070%7Cnvidia-geforce-rtx-5060-ti%3AREGULAR",
-            ],
-            base_url="https://www.bhphotovideo.com",
-            ships_to_iceland="Direct",
-            fx_rates=fx_rates,
-            notes="Ships direct to Iceland via DHL Express (Effortless Pre-Pay customs on most items)",
-            use_browser_fallback=True,
-        ),
+        scrape_bhphoto(fx_rates),
         _scrape_via_scraperapi_or_direct(
             store="Newegg",
             urls=[
