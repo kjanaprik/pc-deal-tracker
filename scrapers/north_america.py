@@ -480,10 +480,13 @@ def scrape_cyberpowerpc(fx_rates: dict[str, float]) -> tuple[list[Product], Stor
 SERPAPI_STATE_PATH = Path(__file__).resolve().parent.parent / "data" / "serpapi_state.json"
 
 BHPHOTO_SERPAPI_QUERIES = [
-    ("RTX 5080 16GB", "gaming desktop RTX 5080"),
-    ("RTX 5070 Ti 16GB", "gaming desktop RTX 5070 Ti"),
-    ("RTX 5060 Ti 16GB", "gaming desktop RTX 5060 Ti 16GB"),
+    ("RTX 5080 16GB", "Desktop Computer RTX 5080"),
+    ("RTX 5070 Ti 16GB", "Desktop Computer RTX 5070 Ti"),
+    ("RTX 5060 Ti 16GB", "Desktop Computer RTX 5060 Ti 16GB"),
 ]
+
+# B&H Photo-Video-Audio Google Merchant Center ID (from Google Shopping mid:)
+BHPHOTO_MERCHANT_TBS = "mr:1,merchagg:m576462829555096145"
 
 
 def _extract_bh_shoprs(data: dict) -> str:
@@ -572,12 +575,23 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
             }
             if bh_shoprs:
                 params["shoprs"] = bh_shoprs
+            else:
+                params["tbs"] = BHPHOTO_MERCHANT_TBS
 
             r = requests.get("https://serpapi.com/search.json", params=params, timeout=25)
             r.raise_for_status()
             data = r.json()
             if data.get("error"):
                 raise RuntimeError(f"SerpApi error: {data['error']}")
+
+            # If tbs merchant filter returned 0 results, fall back to un-filtered B&H query
+            if not data.get("shopping_results") and "tbs" in params:
+                params.pop("tbs", None)
+                r = requests.get("https://serpapi.com/search.json", params=params, timeout=25)
+                r.raise_for_status()
+                data = r.json()
+                if data.get("error"):
+                    raise RuntimeError(f"SerpApi error: {data['error']}")
 
             # Discover and cache Google Shopping's native B&H Seller filter token
             discovered_shoprs = _extract_bh_shoprs(data)
