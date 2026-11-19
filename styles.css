@@ -220,7 +220,7 @@ body {
   margin: 0 auto;
   padding: 12px 24px;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
 }
 

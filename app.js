@@ -1,5 +1,5 @@
 const STORAGE_KEY = "pc_deal_tracker_watchlist_v1";
-const ALL_GPUS = ["RTX 5060 Ti 16GB", "RTX 5070 12GB", "RTX 5070 Ti 16GB", "RTX 5080 16GB"];
+const ALL_GPUS = ["RTX 5060 Ti 16GB", "RTX 5070 Ti 16GB", "RTX 5080 16GB"];
 
 const STORE_DOMAINS = {
   "Tölvutek": "tolvutek.is",
