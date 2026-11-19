@@ -488,14 +488,13 @@ def scrape_all_north_america(fx_rates: dict[str, float]) -> tuple[list[Product],
         _scrape_via_scraperapi_or_direct(
             store="B&H Photo",
             urls=[
-                "https://www.bhphotovideo.com/c/search?q=gaming+desktop+rtx+5070+ti",
-                "https://www.bhphotovideo.com/c/search?q=gaming+desktop+rtx+5080",
-                "https://www.bhphotovideo.com/c/search?q=gaming+desktop+rtx+5060+ti",
+                "https://www.bhphotovideo.com/c/products/Desktop-Computers/ci/9594?filters=fct_graphic-card_3052%3Anvidia-geforce-rtx-5080%7Cnvidia-geforce-rtx-5070-ti%7Cnvidia-geforce-rtx-5070%7Cnvidia-geforce-rtx-5060-ti%3AREGULAR",
             ],
             base_url="https://www.bhphotovideo.com",
             ships_to_iceland="Direct",
             fx_rates=fx_rates,
             notes="Ships direct to Iceland via DHL Express (Effortless Pre-Pay customs on most items)",
+            use_browser_fallback=True,
         ),
         _scrape_via_scraperapi_or_direct(
             store="Newegg",
