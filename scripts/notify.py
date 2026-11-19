@@ -166,7 +166,72 @@ def send_email(subject: str, html_body: str) -> bool:
     return False
 
 
+def send_ntfy(alerts: list[dict]) -> bool:
+    topic = os.getenv("NTFY_TOPIC", "").strip()
+    if not topic:
+        return False
+
+    url = topic if topic.startswith("http://") or topic.startswith("https://") else f"https://ntfy.sh/{topic.lstrip('/')}"
+
+    if len(alerts) == 1:
+        p = alerts[0]["product"]
+        ex_vsk = int(round(p["estimated_landed_isk"] / 1.24)) if p.get("region") == "Iceland" else int(round((p["estimated_landed_isk"] - 2500) / 1.24 + 2500))
+        title = f"{p['gpu']} Deal @ {p['store']}"
+        body = (
+            f"{p['title']}\n"
+            f"Landed: {format_isk(p['estimated_landed_isk'])} | Ex-VSK: {format_isk(ex_vsk)}\n"
+            f"Store: {p['price_original']} {p['currency']}\n"
+            f"{' · '.join(alerts[0]['reasons'])}"
+        )
+        click_url = p["url"]
+    else:
+        title = f"{len(alerts)} RTX 50-Series PC Deals Found!"
+        lines = []
+        for a in alerts[:5]:
+            p = a["product"]
+            ex_vsk = int(round(p["estimated_landed_isk"] / 1.24)) if p.get("region") == "Iceland" else int(round((p["estimated_landed_isk"] - 2500) / 1.24 + 2500))
+            lines.append(f"• {p['gpu']} ({p['store']}): {format_isk(ex_vsk)} ex-VSK — {a['reasons'][0]}")
+        if len(alerts) > 5:
+            lines.append(f"...and {len(alerts) - 5} more deals")
+        body = "\n".join(lines)
+        click_url = "https://kjanaprik.github.io/pc-deal-tracker/"
+
+    r = requests.post(
+        url,
+        data=body.encode("utf-8"),
+        headers={
+            "Title": title.encode("ascii", "ignore").decode("ascii") or "PC Deal Alert",
+            "Priority": "high",
+            "Tags": "computer,money_with_wings",
+            "Click": click_url,
+        },
+        timeout=15,
+    )
+    r.raise_for_status()
+    print("Sent push notification via ntfy.")
+    return True
+
+
 def main() -> None:
+    if os.getenv("TEST_NTFY", "").strip() == "1":
+        topic = os.getenv("NTFY_TOPIC", "").strip()
+        if topic:
+            url = topic if topic.startswith("http") else f"https://ntfy.sh/{topic.lstrip('/')}"
+            r = requests.post(
+                url,
+                data="ntfy push alerts are connected! You will get pinged here whenever a watched RTX 5060 Ti 16GB / 5070 Ti 16GB / 5080 16GB PC drops in price.".encode("utf-8"),
+                headers={
+                    "Title": "PC Deal Tracker: Alerts Active",
+                    "Priority": "default",
+                    "Tags": "white_check_mark,computer",
+                    "Click": "https://kjanaprik.github.io/pc-deal-tracker/",
+                },
+                timeout=15,
+            )
+            r.raise_for_status()
+            print("Sent test ntfy push notification.")
+        return
+
     deals = load_json(DEALS_PATH, {})
     watchlist = load_json(WATCHLIST_PATH, {})
     notified = load_json(NOTIFIED_PATH, {})
@@ -178,8 +243,9 @@ def main() -> None:
 
     subject = f"[PC Deal Alert] {len(alerts)} RTX 50-series Gaming PC deal(s) found!"
     html_body = build_email_html(alerts)
-    sent = send_email(subject, html_body)
-    if sent:
+    sent_email = send_email(subject, html_body)
+    sent_ntfy = send_ntfy(alerts)
+    if sent_email or sent_ntfy:
         NOTIFIED_PATH.write_text(json.dumps(notified, indent=2), encoding="utf-8")
 
 

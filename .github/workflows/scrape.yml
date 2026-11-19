@@ -7,6 +7,12 @@ on:
     # Black Friday / Cyber Monday weekend burst: every 30 minutes (Nov 26-30)
     - cron: "*/30 * 26-30 11 *"
   workflow_dispatch:
+    inputs:
+      test_ntfy:
+        description: "Send a test ntfy push notification"
+        required: false
+        default: "0"
+        type: string
 
 permissions:
   contents: write
@@ -39,7 +45,7 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: caffeinate -i .venv/bin/python scripts/scrape_all.py
 
-      - name: Check watchlist & send email alerts
+      - name: Check watchlist & send email/ntfy alerts
         env:
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
@@ -48,6 +54,8 @@ jobs:
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          TEST_NTFY: ${{ github.event.inputs.test_ntfy || '0' }}
         run: .venv/bin/python scripts/notify.py
 
       - name: Commit updated deal data
