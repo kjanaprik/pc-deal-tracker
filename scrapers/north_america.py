@@ -648,12 +648,19 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
                 )
 
                 # B&H Google Shopping titles often omit the GPU (e.g. "CyberPowerPC Gamer Supreme R7 9850X3D 32GB").
-                # If it's a genuine desktop PC and doesn't name a different GPU or 8GB VRAM, tag it with expected_gpu.
+                # NEVER guess "RTX 5060 Ti 16GB" when omitted (too many 8GB 5060/5060 Ti models match that query).
+                # For 5070 Ti / 5080, only allow fallback if it's a desktop PC, not a known 12GB SKU, and no other GPU is named.
                 combined_text = f"{title} {description}"
-                if not detect_target_gpu(combined_text) and is_desktop_pc(title, description):
+                if "slc10200cpgv19" in combined_text.lower():
+                    continue
+                if (
+                    expected_gpu != "RTX 5060 Ti 16GB"
+                    and not detect_target_gpu(combined_text)
+                    and is_desktop_pc(title, description)
+                ):
                     import re as _re
                     other_gpu = _re.search(
-                        r"\b(?:rtx\s*(?:20|30|40|50)\d{2}(?:\s*(?:ti|super))?|rx\s*\d{4}(?:\s*xt)?|8\s*gb\s*(?:gddr|vram))\b",
+                        r"\b(?:rtx\s*(?:20|30|40|50)\d{2}(?:\s*(?:ti|super))?|rx\s*\d{4}(?:\s*xt)?|8\s*gb\s*(?:gddr|vram)|12\s*gb\s*(?:gddr|vram))\b",
                         combined_text,
                         _re.IGNORECASE,
                     )
