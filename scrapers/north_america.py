@@ -571,11 +571,18 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
             bh_seen = 0
             bh_priced = 0
             bh_kept = 0
+            sample_debug = None
             for item in results_list:
                 link = str(item.get("link") or "").strip()
-                if "bhphotovideo.com/c/product/" not in link.lower():
+                if "bhphotovideo.com" not in link.lower():
                     continue
                 bh_seen += 1
+                if sample_debug is None:
+                    sample_debug = {
+                        "link": link[:90],
+                        "title": str(item.get("title") or "")[:60],
+                        "rich": item.get("rich_snippet"),
+                    }
 
                 raw_title = str(item.get("title") or "").strip()
                 # Clean trailing "- B&H Photo Video" / "| B&H Photo"
@@ -609,6 +616,11 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
                             price_val = parse_price(str(ext), "USD")
                             if price_val and price_val >= 500:
                                 break
+                if not price_val and "$" in snippet:
+                    import re as _re
+                    m_price = _re.search(r"\$\s*([1-9],\d{3}(?:\.\d{2})?)", snippet)
+                    if m_price:
+                        price_val = parse_price(m_price.group(1), "USD")
                 if not price_val or price_val < 500:
                     continue
                 bh_priced += 1
@@ -650,6 +662,8 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
             print(
                 f"[B&H SerpApi] q={query!r} -> total={len(results_list)}, "
                 f"bh_seen={bh_seen}, bh_priced={bh_priced}, bh_kept={bh_kept}"
+                + (f", sample={sample_debug}" if bh_kept == 0 and sample_debug else "")
+                + (f", first_raw={results_list[0].get('link')!r}" if bh_seen == 0 and results_list else "")
             )
 
         state["bhphoto_last_run_ts"] = now_ts
