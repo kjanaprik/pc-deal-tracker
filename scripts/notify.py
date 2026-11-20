@@ -37,10 +37,25 @@ def find_alerts(deals: dict, watchlist: dict, notified: dict) -> list[dict]:
     global_min_drop_pct = float(watchlist.get("global_min_drop_pct", 5.0))
     global_min_drop_isk = int(watchlist.get("global_min_drop_isk", 15000))
     min_drop_pct = float(watchlist.get("min_price_drop_pct", 3.0))
+    max_store_price_usd = float(watchlist.get("max_store_price_usd", 2800))
+    usd_rate = float((deals.get("fx_rates") or {}).get("USD", 130.0))
 
     alerts: list[dict] = []
 
     for p in deals.get("products", []):
+        # Enforce max store price cap (in USD equivalent, using discounted/current store price)
+        if max_store_price_usd > 0:
+            currency = str(p.get("currency") or "").upper()
+            if currency == "USD":
+                store_price_usd = float(p.get("price_original") or 0)
+            elif currency == "ISK":
+                # Icelandic sticker prices include 24% VSK; compare ex-VSK equivalent against USD cap
+                store_price_usd = (float(p.get("price_isk") or 0) / 1.24) / usd_rate
+            else:
+                store_price_usd = float(p.get("price_isk") or 0) / usd_rate
+            if store_price_usd > max_store_price_usd:
+                continue
+
         pid = p["id"]
         reasons: list[str] = []
 

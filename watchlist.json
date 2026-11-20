@@ -16,6 +16,7 @@
   ],
   "notify_on_any_watched_sale": true,
   "notify_on_any_price_drop": true,
+  "max_store_price_usd": 2800,
   "global_min_drop_pct": 5.0,
   "global_min_drop_isk": 15000,
   "min_price_drop_pct": 3.0
