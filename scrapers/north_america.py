@@ -831,6 +831,116 @@ def scrape_reddit_buildapcsales(fx_rates: dict[str, float]) -> tuple[list[Produc
         )
 
 
+def scrape_reddit_prebuilts(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
+    """r/Prebuilts community deals via Arctic Shift public Reddit mirror."""
+    import re as _re
+    from urllib.parse import urlparse
+
+    store = "r/Prebuilts"
+    t0 = time.monotonic()
+    products: dict[str, Product] = {}
+    now_ts = time.time()
+    cutoff_ts = now_ts - (7 * 86400)
+
+    try:
+        before_ts = None
+        for _page in range(2):  # Scan up to 100 latest posts
+            params: dict[str, object] = {
+                "subreddit": "Prebuilts",
+                "limit": 50,
+                "sort": "desc",
+            }
+            if before_ts is not None:
+                params["before"] = int(before_ts)
+
+            r = requests.get(
+                "https://arctic-shift.photon-reddit.com/api/posts/search",
+                params=params,
+                headers={"User-Agent": "pc-deal-tracker/1.0"},
+                timeout=15,
+            )
+            r.raise_for_status()
+            posts = r.json().get("data") or []
+            if not posts:
+                break
+
+            oldest_in_page = None
+            for post in posts:
+                created = float(post.get("created_utc") or 0)
+                if created:
+                    oldest_in_page = created if oldest_in_page is None else min(oldest_in_page, created)
+                if created and created < cutoff_ts:
+                    continue
+
+                title = str(post.get("title") or "").strip()
+                selftext = str(post.get("selftext") or "")[:500]
+                if not title:
+                    continue
+                t_lower = title.lower()
+                # Skip pure recommendation/help threads without a specific priced build
+                if any(q in t_lower for q in ("what's the best", "whats the best", "help me", "recommend", "looking for")):
+                    continue
+
+                combined = f"{title} {selftext}"
+                if not detect_target_gpu(combined):
+                    continue
+
+                m_price = _re.search(r"\$\s*([1-9],?\d{3}(?:\.\d{2})?|[6-9]\d{2}(?:\.\d{2})?)", combined)
+                if not m_price:
+                    continue
+                price_val = parse_price(m_price.group(1), "USD")
+                if not price_val or price_val < 600:
+                    continue
+
+                permalink = str(post.get("permalink") or "").strip()
+                reddit_url = f"https://www.reddit.com{permalink}" if permalink else str(post.get("url") or "")
+                deal_url = str(post.get("url") or "")
+                domain = urlparse(deal_url).netloc.replace("www.", "") if deal_url else "reddit.com"
+                thumb = str(post.get("thumbnail") or "")
+                if not thumb.startswith("http"):
+                    thumb = ""
+
+                # Ensure desktop context for r/Prebuilts posts whose title is brief
+                desc = f"Prebuilt Desktop PC {selftext}".strip()
+                prod = _build_na_product(
+                    store=store,
+                    title=title,
+                    url=reddit_url,
+                    price_usd=price_val,
+                    fx_rates=fx_rates,
+                    ships_to_iceland="Direct" if "bhphotovideo.com" in domain else "Forwarder Required",
+                    image_url=thumb,
+                    description=desc,
+                    in_stock=True,
+                    notes=f"Posted on r/Prebuilts ({domain})",
+                )
+                if prod:
+                    products[prod.id] = prod
+
+            if oldest_in_page is None or oldest_in_page < cutoff_ts:
+                break
+            before_ts = oldest_in_page
+
+        return list(products.values()), StoreResult(
+            store=store,
+            region="USA/Canada",
+            ships_to_iceland="Forwarder Required",
+            status="ok",
+            count=len(products),
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+    except Exception as exc:
+        return list(products.values()), StoreResult(
+            store=store,
+            region="USA/Canada",
+            ships_to_iceland="Forwarder Required",
+            status="error",
+            count=len(products),
+            error=str(exc),
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+
+
 def _parse_usd(s: str) -> Optional[float]:
     return parse_price(s, "USD")
 
@@ -844,6 +954,7 @@ def scrape_all_north_america(fx_rates: dict[str, float]) -> tuple[list[Product],
         scrape_amazon_us(fx_rates),
         scrape_bhphoto(fx_rates),
         scrape_reddit_buildapcsales(fx_rates),
+        scrape_reddit_prebuilts(fx_rates),
         _scrape_via_scraperapi_or_direct(
             store="Newegg",
             urls=[

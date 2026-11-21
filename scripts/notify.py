@@ -85,9 +85,9 @@ def find_alerts(deals: dict, watchlist: dict, notified: dict) -> list[dict]:
                 continue
             reasons.append(f"Matches rule: {rule.get('name', 'Price Alert')}")
 
-        # 4. New 16GB VRAM prebuilt deal posted on r/buildapcsales
-        if p.get("store") == "r/buildapcsales":
-            reasons.append("New r/buildapcsales Prebuilt deal")
+        # 4. New 16GB VRAM prebuilt deal posted on Reddit (r/buildapcsales or r/Prebuilts)
+        if p.get("store") in ("r/buildapcsales", "r/Prebuilts"):
+            reasons.append(f"New {p['store']} Prebuilt deal")
 
         if not reasons:
             continue
