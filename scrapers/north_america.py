@@ -647,16 +647,23 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
                     for oos in ("out of stock", "sold out", "temporarily out of stock")
                 )
 
-                # B&H Google Shopping titles often omit the GPU (e.g. "CyberPowerPC Gamer Supreme R7 9850X3D 32GB").
-                # NEVER guess "RTX 5060 Ti 16GB" when omitted (too many 8GB 5060/5060 Ti models match that query).
-                # For 5070 Ti / 5080, only allow fallback if it's a desktop PC, not a known 12GB SKU, and no other GPU is named.
+                # B&H Google Shopping titles often omit the GPU (e.g. "CyberPowerPC Gamer Supreme R7 9850X3D 32GB"),
+                # AND Google Shopping mixes 12GB RTX 5070 / 8GB 5060 Ti builds into "RTX 5070 Ti" results.
+                # Only apply the expected_gpu fallback for verified 16GB B&H builds/CPUs so 12GB 5070s never trigger false alerts.
                 combined_text = f"{title} {description}"
-                if "slc10200cpgv19" in combined_text.lower():
+                c_low = combined_text.lower()
+                if "slc10200cpgv19" in c_low or "8700f" in c_low:
                     continue
+                verified_bh_16gb_hints = (
+                    "270k", "9800x3d", "9850x3d", "9900x3d", "9950x3d", "9900x",
+                    "90ya0016us", "legion tower 5i", "dact1250", "aurora",
+                    "slc11020", "slc10220", "slcai10600", "slcai8800",
+                )
                 if (
                     expected_gpu != "RTX 5060 Ti 16GB"
                     and not detect_target_gpu(combined_text)
                     and is_desktop_pc(title, description)
+                    and any(h in c_low for h in verified_bh_16gb_hints)
                 ):
                     import re as _re
                     other_gpu = _re.search(
