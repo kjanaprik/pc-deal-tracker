@@ -728,8 +728,30 @@ def scrape_bhphoto(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResu
         )
 
 
+def _match_bh_target_in_text(text: str) -> Optional[dict]:
+    """Return matching BH_PRICEMATCH_TARGETS entry if text mentions its MPN or B&H SKU."""
+    low = text.lower()
+    compact = low.replace("-", "").replace(" ", "")
+    bh_sku_map = {
+        "cyslc11020c4": "SLC11020CPGV4",
+        "cys220cpgv22": "SLC10220CPGV22",
+        "de12509216bl": "DACT1250-9216BLU-PUS",
+        "cyslcai10600": "SLCAI10600CPG",
+    }
+    for target in BH_PRICEMATCH_TARGETS:
+        mpn = str(target["mpn"]).lower()
+        if mpn in low or mpn.replace("-", "") in compact:
+            return target
+    for sku, mpn in bh_sku_map.items():
+        if sku in compact:
+            for target in BH_PRICEMATCH_TARGETS:
+                if target["mpn"] == mpn:
+                    return target
+    return None
+
+
 def scrape_reddit_buildapcsales(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
-    """r/buildapcsales community Prebuilt deals via Arctic Shift public Reddit mirror."""
+    """r/buildapcsales community Prebuilt deals + B&H price-match target mentions via Arctic Shift."""
     import re as _re
     from urllib.parse import urlparse
 
@@ -774,13 +796,21 @@ def scrape_reddit_buildapcsales(fx_rates: dict[str, float]) -> tuple[list[Produc
                 t_lower = title.lower()
                 if not title:
                     continue
-                if not any(tag in flair or tag in t_lower for tag in ("prebuilt", "[prebuilt]", "[desktop]", "gaming desktop", "gaming pc")):
+                selftext = str(post.get("selftext") or "")[:500]
+                deal_url = str(post.get("url") or "")
+                bh_target = _match_bh_target_in_text(f"{title} {selftext} {deal_url}")
+
+                if not bh_target and not any(
+                    tag in flair or tag in t_lower
+                    for tag in ("prebuilt", "[prebuilt]", "[desktop]", "gaming desktop", "gaming pc")
+                ):
                     continue
                 if "expired" in flair or "out of stock" in flair:
                     continue
 
-                # Extract USD price from title (e.g. $2,649 or $1899.99)
-                m_price = _re.search(r"\$\s*([1-9],?\d{3}(?:\.\d{2})?|[6-9]\d{2}(?:\.\d{2})?)", title)
+                # Extract USD price from title (or selftext if exact B&H target)
+                price_source = f"{title} {selftext}" if bh_target else title
+                m_price = _re.search(r"\$\s*([1-9],?\d{3}(?:\.\d{2})?|[6-9]\d{2}(?:\.\d{2})?)", price_source)
                 if not m_price:
                     continue
                 price_val = parse_price(m_price.group(1), "USD")
@@ -788,13 +818,22 @@ def scrape_reddit_buildapcsales(fx_rates: dict[str, float]) -> tuple[list[Produc
                     continue
 
                 permalink = str(post.get("permalink") or "").strip()
-                reddit_url = f"https://www.reddit.com{permalink}" if permalink else str(post.get("url") or "")
-                deal_url = str(post.get("url") or "")
+                reddit_url = f"https://www.reddit.com{permalink}" if permalink else deal_url
                 domain = urlparse(deal_url).netloc.replace("www.", "") if deal_url else "reddit.com"
 
                 # Clean leading "[Prebuilt]" tag for readability
                 clean_title = _re.sub(r"^\s*\[(?:prebuilt|desktop|pc)\]\s*", "", title, flags=_re.IGNORECASE).strip()
-                selftext = str(post.get("selftext") or "")[:400]
+                if bh_target:
+                    mpn = bh_target["mpn"]
+                    clean_title = f"[B&H PM Target: {mpn}] {clean_title}"
+                    desc = f"Prebuilt Desktop PC {bh_target['specs']} {selftext}".strip()
+                    ships = "Direct"
+                    note = f"Exact B&H PM target {mpn} posted on r/buildapcsales ({domain})!"
+                else:
+                    desc = selftext
+                    ships = "Direct" if "bhphotovideo.com" in domain else "Forwarder Required"
+                    note = f"Posted on r/buildapcsales ({domain}) — check thread for coupon/stock"
+
                 thumb = str(post.get("thumbnail") or "")
                 if not thumb.startswith("http"):
                     thumb = ""
@@ -805,11 +844,11 @@ def scrape_reddit_buildapcsales(fx_rates: dict[str, float]) -> tuple[list[Produc
                     url=reddit_url,
                     price_usd=price_val,
                     fx_rates=fx_rates,
-                    ships_to_iceland="Direct" if "bhphotovideo.com" in domain else "Forwarder Required",
+                    ships_to_iceland=ships,
                     image_url=thumb,
-                    description=selftext,
+                    description=desc,
                     in_stock=True,
-                    notes=f"Posted on r/buildapcsales ({domain}) — check thread for coupon/stock",
+                    notes=note,
                 )
                 if prod:
                     products[prod.id] = prod
@@ -839,7 +878,7 @@ def scrape_reddit_buildapcsales(fx_rates: dict[str, float]) -> tuple[list[Produc
 
 
 def scrape_reddit_prebuilts(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
-    """r/Prebuilts community deals via Arctic Shift public Reddit mirror."""
+    """Scan r/Prebuilts, r/PrebuiltPCdeals, r/PrebuiltGamingPC, r/CYBERPOWERPC, and r/Alienware via Arctic Shift."""
     import re as _re
     from urllib.parse import urlparse
 
@@ -849,48 +888,53 @@ def scrape_reddit_prebuilts(fx_rates: dict[str, float]) -> tuple[list[Product], 
     now_ts = time.time()
     cutoff_ts = now_ts - (7 * 86400)
 
-    try:
-        before_ts = None
-        for _page in range(2):  # Scan up to 100 latest posts
-            params: dict[str, object] = {
-                "subreddit": "Prebuilts",
-                "limit": 50,
-                "sort": "desc",
-            }
-            if before_ts is not None:
-                params["before"] = int(before_ts)
+    # General prebuilt deal subs + brand subs specifically checked for our B&H price-match target models
+    subreddits = [
+        ("Prebuilts", False),
+        ("PrebuiltPCdeals", False),
+        ("PrebuiltGamingPC", False),
+        ("CYBERPOWERPC", True),
+        ("Alienware", True),
+    ]
 
+    try:
+        for idx, (sub, targets_only) in enumerate(subreddits):
+            if idx > 0:
+                time.sleep(0.5)
             r = requests.get(
                 "https://arctic-shift.photon-reddit.com/api/posts/search",
-                params=params,
+                params={"subreddit": sub, "limit": 50, "sort": "desc"},
                 headers={"User-Agent": "pc-deal-tracker/1.0"},
                 timeout=15,
             )
-            r.raise_for_status()
+            if r.status_code != 200:
+                continue
             posts = r.json().get("data") or []
-            if not posts:
-                break
 
-            oldest_in_page = None
             for post in posts:
                 created = float(post.get("created_utc") or 0)
-                if created:
-                    oldest_in_page = created if oldest_in_page is None else min(oldest_in_page, created)
                 if created and created < cutoff_ts:
                     continue
 
                 title = str(post.get("title") or "").strip()
-                selftext = str(post.get("selftext") or "")[:500]
+                selftext = str(post.get("selftext") or "")[:600]
+                deal_url = str(post.get("url") or "")
                 if not title:
                     continue
                 t_lower = title.lower()
-                # Skip pure recommendation/help threads without a specific priced build
-                if any(q in t_lower for q in ("what's the best", "whats the best", "help me", "recommend", "looking for")):
-                    continue
+                combined = f"{title} {selftext} {deal_url}"
+                bh_target = _match_bh_target_in_text(combined)
 
-                combined = f"{title} {selftext}"
-                if not detect_target_gpu(combined):
-                    continue
+                if not bh_target:
+                    # Skip pure recommendation/help threads without a specific priced build
+                    if any(q in t_lower for q in ("what's the best", "whats the best", "help me", "recommend", "looking for")):
+                        continue
+                    if targets_only:
+                        # On r/CYBERPOWERPC and r/Alienware, only alert on RTX 5070 Ti / 5080 deals
+                        if not any(g in combined.lower() for g in ("5070 ti", "5070ti", "5080")):
+                            continue
+                    elif not detect_target_gpu(combined):
+                        continue
 
                 m_price = _re.search(r"\$\s*([1-9],?\d{3}(?:\.\d{2})?|[6-9]\d{2}(?:\.\d{2})?)", combined)
                 if not m_price:
@@ -900,33 +944,38 @@ def scrape_reddit_prebuilts(fx_rates: dict[str, float]) -> tuple[list[Product], 
                     continue
 
                 permalink = str(post.get("permalink") or "").strip()
-                reddit_url = f"https://www.reddit.com{permalink}" if permalink else str(post.get("url") or "")
-                deal_url = str(post.get("url") or "")
+                reddit_url = f"https://www.reddit.com{permalink}" if permalink else deal_url
                 domain = urlparse(deal_url).netloc.replace("www.", "") if deal_url else "reddit.com"
                 thumb = str(post.get("thumbnail") or "")
                 if not thumb.startswith("http"):
                     thumb = ""
 
-                # Ensure desktop context for r/Prebuilts posts whose title is brief
-                desc = f"Prebuilt Desktop PC {selftext}".strip()
+                if bh_target:
+                    mpn = bh_target["mpn"]
+                    prod_title = f"[B&H PM Target: {mpn}] {title}"
+                    desc = f"Prebuilt Desktop PC {bh_target['specs']} {selftext}".strip()
+                    ships = "Direct"
+                    note = f"Exact B&H PM target {mpn} posted on r/{sub} ({domain})!"
+                else:
+                    prod_title = f"[r/{sub}] {title}" if sub != "Prebuilts" else title
+                    desc = f"Prebuilt Desktop PC {selftext}".strip()
+                    ships = "Direct" if "bhphotovideo.com" in domain else "Forwarder Required"
+                    note = f"Posted on r/{sub} ({domain})"
+
                 prod = _build_na_product(
                     store=store,
-                    title=title,
+                    title=prod_title,
                     url=reddit_url,
                     price_usd=price_val,
                     fx_rates=fx_rates,
-                    ships_to_iceland="Direct" if "bhphotovideo.com" in domain else "Forwarder Required",
+                    ships_to_iceland=ships,
                     image_url=thumb,
                     description=desc,
                     in_stock=True,
-                    notes=f"Posted on r/Prebuilts ({domain})",
+                    notes=note,
                 )
                 if prod:
                     products[prod.id] = prod
-
-            if oldest_in_page is None or oldest_in_page < cutoff_ts:
-                break
-            before_ts = oldest_in_page
 
         return list(products.values()), StoreResult(
             store=store,
