@@ -948,6 +948,174 @@ def scrape_reddit_prebuilts(fx_rates: dict[str, float]) -> tuple[list[Product], 
         )
 
 
+BH_PRICEMATCH_TARGETS = [
+    {
+        "mpn": "SLC11020CPGV4",
+        "bh_price": 2749.99,
+        "gpu": "RTX 5070 Ti 16GB",
+        "specs": "CyberPowerPC Gamer Supreme (Ryzen 7 9800X3D, 32GB DDR5, 2TB NVMe, RTX 5070 Ti 16GB)",
+    },
+    {
+        "mpn": "SLC10220CPGV22",
+        "bh_price": 2599.99,
+        "gpu": "RTX 5070 Ti 16GB",
+        "specs": "CyberPowerPC Gamer Supreme (Core Ultra 7 270K Plus, 32GB DDR5, 2TB NVMe, RTX 5070 Ti 16GB)",
+    },
+    {
+        "mpn": "DACT1250-9216BLU-PUS",
+        "bh_price": 2799.00,
+        "gpu": "RTX 5070 Ti 16GB",
+        "specs": "Dell Alienware Aurora (Core Ultra 9 285, 32GB DDR5, 1TB NVMe, RTX 5070 Ti 16GB)",
+    },
+    {
+        "mpn": "SLCAI10600CPG",
+        "bh_price": 3079.99,
+        "gpu": "RTX 5070 Ti 16GB",
+        "specs": "CyberPowerPC Gamer Supreme (Ryzen 7 9850X3D, 32GB DDR5, 2TB NVMe, RTX 5070 Ti 16GB)",
+    },
+]
+
+
+def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
+    """Monitor exact B&H Photo MFR model numbers across US competitors for price-match opportunities."""
+    store = "B&H Price Match"
+    t0 = time.monotonic()
+    serpapi_key = os.getenv("SERPAPI_KEY", "").strip()
+    if not serpapi_key:
+        return [], StoreResult(
+            store=store,
+            region="USA/Canada",
+            ships_to_iceland="Direct",
+            status="blocked",
+            count=0,
+            error="Set SERPAPI_KEY secret to monitor B&H competitor price-match targets",
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+
+    now = datetime.now(timezone.utc)
+    now_ts = now.timestamp()
+    force = os.getenv("FORCE_SERPAPI", "").strip().lower() in ("1", "true", "yes")
+    is_bf_window = now.month == 11 and 26 <= now.day <= 30
+    interval_hours = 6.0 if is_bf_window else 12.0
+
+    state = _load_serpapi_state()
+    last_ts = float(state.get("bh_pm_last_run_ts", 0.0) or 0.0)
+    elapsed_hours = (now_ts - last_ts) / 3600.0 if last_ts else 9999.0
+    if not force and elapsed_hours < interval_hours:
+        remaining = max(0.1, interval_hours - elapsed_hours)
+        return [], StoreResult(
+            store=store,
+            region="USA/Canada",
+            ships_to_iceland="Direct",
+            status="ok",
+            count=0,
+            error=f"Price-match cooldown ({remaining:.1f}h until next competitor scan)",
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+
+    products: dict[str, Product] = {}
+    try:
+        for target in BH_PRICEMATCH_TARGETS:
+            mpn = target["mpn"]
+            bh_price = float(target["bh_price"])
+            r = requests.get(
+                "https://serpapi.com/search.json",
+                params={
+                    "engine": "google_shopping",
+                    "q": mpn,
+                    "gl": "us",
+                    "hl": "en",
+                    "num": "20",
+                    "direct_link": "true",
+                    "api_key": serpapi_key,
+                },
+                timeout=25,
+            )
+            r.raise_for_status()
+            data = r.json()
+            if data.get("error"):
+                raise RuntimeError(f"SerpApi error: {data['error']}")
+
+            results_list = data.get("shopping_results", [])
+            matched = 0
+            for item in results_list:
+                source = str(item.get("source") or "").strip()
+                src_low = source.lower()
+                # Skip B&H itself and used/auction marketplaces B&H never matches
+                if not source or "b&h" in src_low or any(bad in src_low for bad in ("ebay", "mercari", "poshmark", "stockx")):
+                    continue
+                if item.get("second_hand_condition"):
+                    continue
+
+                price_val = item.get("extracted_price")
+                if price_val is None:
+                    price_val = parse_price(str(item.get("price") or ""), "USD")
+                else:
+                    try:
+                        price_val = float(price_val)
+                    except (TypeError, ValueError):
+                        price_val = None
+                # Only keep genuine price-match candidates strictly cheaper than B&H (and realistic >= $1,500)
+                if not price_val or price_val < 1500 or price_val >= bh_price - 10:
+                    continue
+
+                link = str(item.get("link") or item.get("product_link") or "").strip()
+                if not link:
+                    continue
+
+                extensions = item.get("extensions") or []
+                ext_text = " ".join(str(x) for x in extensions if x)
+                delivery = str(item.get("delivery") or "")
+                if any(oos in f"{ext_text} {delivery}".lower() for oos in ("out of stock", "sold out", "backorder", "refurbished", "used")):
+                    continue
+
+                savings = round(bh_price - price_val, 2)
+                title = f"[PM vs B&H -${savings:,.0f}] {mpn} @ {source} — {target['specs']}"
+                prod = _build_na_product(
+                    store=store,
+                    title=title,
+                    url=link,
+                    price_usd=price_val,
+                    fx_rates=fx_rates,
+                    ships_to_iceland="Direct",
+                    image_url=str(item.get("thumbnail") or ""),
+                    original_price_usd=bh_price,
+                    description=f"Desktop PC {target['specs']} {ext_text}",
+                    in_stock=True,
+                    notes=f"Exact B&H MFR {mpn} cheaper at {source} (${price_val:,.2f} vs B&H ${bh_price:,.2f}) — request B&H Price Match!",
+                )
+                if prod:
+                    prod.id = make_product_id(store, f"https://bh-pm.local/{mpn}/{src_low}")
+                    products[prod.id] = prod
+                    matched += 1
+
+            print(f"[B&H PM Monitor] mpn={mpn} (B&H=${bh_price:,.2f}) -> total={len(results_list)}, cheaper_competitors={matched}")
+
+        state["bh_pm_last_run_ts"] = now_ts
+        state["bh_pm_last_run_iso"] = now.isoformat()
+        state["bh_pm_last_count"] = len(products)
+        _save_serpapi_state(state)
+
+        return list(products.values()), StoreResult(
+            store=store,
+            region="USA/Canada",
+            ships_to_iceland="Direct",
+            status="ok",
+            count=len(products),
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+    except Exception as exc:
+        return list(products.values()), StoreResult(
+            store=store,
+            region="USA/Canada",
+            ships_to_iceland="Direct",
+            status="error",
+            count=len(products),
+            error=str(exc),
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
+
+
 def _parse_usd(s: str) -> Optional[float]:
     return parse_price(s, "USD")
 
@@ -960,6 +1128,7 @@ def scrape_all_north_america(fx_rates: dict[str, float]) -> tuple[list[Product],
         scrape_bestbuy(fx_rates),
         scrape_amazon_us(fx_rates),
         scrape_bhphoto(fx_rates),
+        scrape_bh_pricematch_targets(fx_rates),
         scrape_reddit_buildapcsales(fx_rates),
         scrape_reddit_prebuilts(fx_rates),
         _scrape_via_scraperapi_or_direct(
