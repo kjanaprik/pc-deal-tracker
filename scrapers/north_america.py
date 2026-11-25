@@ -1003,26 +1003,104 @@ BH_PRICEMATCH_TARGETS = [
         "bh_price": 2749.99,
         "gpu": "RTX 5070 Ti 16GB",
         "specs": "CyberPowerPC Gamer Supreme (Ryzen 7 9800X3D, 32GB DDR5, 2TB NVMe, RTX 5070 Ti 16GB)",
+        "required_groups": [
+            ("cyberpower", "gamer supreme"),
+            ("9800x3d",),
+            ("5070 ti", "5070ti"),
+        ],
+        "forbidden": ("7800x3d", "9850x3d", "9950x3d", "5060", "5080", "5090", "4070", "4080", "9070"),
     },
     {
         "mpn": "SLC10220CPGV22",
         "bh_price": 2599.99,
         "gpu": "RTX 5070 Ti 16GB",
         "specs": "CyberPowerPC Gamer Supreme (Core Ultra 7 270K Plus, 32GB DDR5, 2TB NVMe, RTX 5070 Ti 16GB)",
+        "required_groups": [
+            ("cyberpower", "gamer supreme"),
+            ("270k",),
+            ("5070 ti", "5070ti"),
+        ],
+        "forbidden": ("265", "285", "9800x3d", "5060", "5080", "5090", "4070", "4080", "9070"),
     },
     {
         "mpn": "DACT1250-9216BLU-PUS",
         "bh_price": 2799.00,
         "gpu": "RTX 5070 Ti 16GB",
         "specs": "Dell Alienware Aurora (Core Ultra 9 285, 32GB DDR5, 1TB NVMe, RTX 5070 Ti 16GB)",
+        "required_groups": [
+            ("alienware", "aurora"),
+            ("ultra 9", "285"),
+            ("5070 ti", "5070ti"),
+        ],
+        "forbidden": ("ultra 7", "ultra 5", "265", "245", "5060", "5080", "5090", "4070", "4080", "9070", "16gb"),
     },
     {
         "mpn": "SLCAI10600CPG",
         "bh_price": 3079.99,
         "gpu": "RTX 5070 Ti 16GB",
         "specs": "CyberPowerPC Gamer Supreme (Ryzen 7 9850X3D, 32GB DDR5, 2TB NVMe, RTX 5070 Ti 16GB)",
+        "required_groups": [
+            ("cyberpower", "gamer supreme"),
+            ("9850x3d",),
+            ("5070 ti", "5070ti"),
+        ],
+        "forbidden": ("7800x3d", "9800x3d", "5060", "5080", "5090", "4070", "4080", "9070"),
     },
 ]
+
+# Only alert on major authorized US retailers that B&H Photo actually price-matches (no 3rd-party sellers/furniture)
+BH_MATCHABLE_RETAILERS = {
+    "best buy",
+    "amazon",
+    "amazon.com",
+    "walmart",
+    "walmart.com",
+    "newegg",
+    "newegg.com",
+    "adorama",
+    "micro center",
+    "staples",
+    "costco",
+    "dell",
+    "dell technologies",
+    "cyberpowerpc",
+    "target",
+    "office depot",
+    "cdw",
+    "abt",
+    "sam's club",
+    "bj's wholesale club",
+}
+
+
+def _is_bh_matchable_source(source: str) -> bool:
+    s = source.strip().lower()
+    if not s or "b&h" in s:
+        return False
+    # Reject 3rd-party marketplace listings like "Walmart - AYDY Tech Store" or "Newegg - Seller"
+    if " - " in s:
+        return False
+    return s in BH_MATCHABLE_RETAILERS
+
+
+def _title_matches_bh_target(raw_title: str, target: dict) -> bool:
+    """Strictly verify Google Shopping item title (NOT URL!) matches the exact B&H target PC."""
+    raw_low = raw_title.lower().strip()
+    if not raw_low:
+        return False
+    # Reject non-PC items and wrong-config tokens
+    if any(bad in raw_low for bad in target.get("forbidden", ())):
+        return False
+    if "5070" in raw_low and "5070 ti" not in raw_low and "5070ti" not in raw_low:
+        return False
+    mpn_low = str(target["mpn"]).lower()
+    if mpn_low in raw_low or mpn_low.replace("-", "") in raw_low.replace("-", ""):
+        return True
+    # Otherwise every required spec group (brand + exact CPU + exact GPU) must appear in the title
+    for group in target.get("required_groups", ()):
+        if not any(tok in raw_low for tok in group):
+            return False
+    return True
 
 
 def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Product], StoreResult]:
@@ -1071,7 +1149,7 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
                 "https://serpapi.com/search.json",
                 params={
                     "engine": "google_shopping",
-                    "q": mpn,
+                    "q": f'"{mpn}"',
                     "gl": "us",
                     "hl": "en",
                     "num": "20",
@@ -1089,12 +1167,7 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
             matched = 0
             for item in results_list:
                 source = str(item.get("source") or "").strip()
-                src_low = source.lower()
-                # Skip B&H itself, used/auction marketplaces, and unrelated furniture/home stores
-                if not source or "b&h" in src_low or any(
-                    bad in src_low
-                    for bad in ("ebay", "mercari", "poshmark", "stockx", "furniture", "wayfair", "ashley", "etsy")
-                ):
+                if not _is_bh_matchable_source(source):
                     continue
                 if item.get("second_hand_condition"):
                     continue
@@ -1104,19 +1177,7 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
                 if not link or not raw_title:
                     continue
 
-                raw_low = raw_title.lower()
-                haystack = f"{raw_low} {link.lower()}"
-                mpn_low = mpn.lower()
-                has_mpn = mpn_low in haystack or mpn_low.replace("-", "") in haystack.replace("-", "")
-                has_pc_brand = any(b in raw_low for b in ("cyberpower", "alienware", "aurora", "dell"))
-                has_pc_spec = any(k in raw_low for k in ("5070 ti", "5070ti", "9800x3d", "9850x3d", "270k", "ultra 9 285"))
-                # Must actually be the PC (either exact MPN match or matching brand + target spec)
-                if not (has_mpn or (has_pc_brand and has_pc_spec)):
-                    continue
-                # Reject obvious wrong-GPU configs Google Shopping sometimes substitutes
-                if any(wrong in raw_low for wrong in ("5060", "5080", "5090", "4060", "4070", "4080", "4090", "9070")):
-                    continue
-                if "5070" in raw_low and "5070 ti" not in raw_low and "5070ti" not in raw_low:
+                if not _title_matches_bh_target(raw_title, target):
                     continue
 
                 price_val = item.get("extracted_price")
@@ -1138,7 +1199,9 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
                     continue
 
                 savings = round(bh_price - price_val, 2)
-                title = f"[PM vs B&H -${savings:,.0f}] {mpn} @ {source} — {target['specs']}"
+                src_low = source.lower()
+                # Show the actual competitor listing title so you can verify exact model before clicking
+                title = f"[PM vs B&H -${savings:,.0f}] {mpn} @ {source} — {raw_title}"
                 prod = _build_na_product(
                     store=store,
                     title=title,
@@ -1148,16 +1211,16 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
                     ships_to_iceland="Direct",
                     image_url=str(item.get("thumbnail") or ""),
                     original_price_usd=bh_price,
-                    description=f"Desktop PC {target['specs']} {ext_text}",
+                    description=f"Desktop PC {target['specs']} {raw_title} {ext_text}",
                     in_stock=True,
-                    notes=f"Exact B&H MFR {mpn} cheaper at {source} (${price_val:,.2f} vs B&H ${bh_price:,.2f}) — request B&H Price Match!",
+                    notes=f"Exact B&H MFR {mpn} cheaper at {source} (${price_val:,.2f} vs B&H ${bh_price:,.2f}) — verify in stock & request B&H Price Match!",
                 )
                 if prod:
                     prod.id = make_product_id(store, f"https://bh-pm.local/{mpn}/{src_low}")
                     products[prod.id] = prod
                     matched += 1
 
-            print(f"[B&H PM Monitor] mpn={mpn} (B&H=${bh_price:,.2f}) -> total={len(results_list)}, cheaper_competitors={matched}")
+            print(f"[B&H PM Monitor] mpn={mpn} (B&H=${bh_price:,.2f}) -> total={len(results_list)}, verified_matches={matched}")
 
         state["bh_pm_last_run_ts"] = now_ts
         state["bh_pm_last_run_iso"] = now.isoformat()
