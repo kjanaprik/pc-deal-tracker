@@ -1041,10 +1041,33 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
             for item in results_list:
                 source = str(item.get("source") or "").strip()
                 src_low = source.lower()
-                # Skip B&H itself and used/auction marketplaces B&H never matches
-                if not source or "b&h" in src_low or any(bad in src_low for bad in ("ebay", "mercari", "poshmark", "stockx")):
+                # Skip B&H itself, used/auction marketplaces, and unrelated furniture/home stores
+                if not source or "b&h" in src_low or any(
+                    bad in src_low
+                    for bad in ("ebay", "mercari", "poshmark", "stockx", "furniture", "wayfair", "ashley", "etsy")
+                ):
                     continue
                 if item.get("second_hand_condition"):
+                    continue
+
+                raw_title = str(item.get("title") or "").strip()
+                link = str(item.get("link") or item.get("product_link") or "").strip()
+                if not link or not raw_title:
+                    continue
+
+                raw_low = raw_title.lower()
+                haystack = f"{raw_low} {link.lower()}"
+                mpn_low = mpn.lower()
+                has_mpn = mpn_low in haystack or mpn_low.replace("-", "") in haystack.replace("-", "")
+                has_pc_brand = any(b in raw_low for b in ("cyberpower", "alienware", "aurora", "dell"))
+                has_pc_spec = any(k in raw_low for k in ("5070 ti", "5070ti", "9800x3d", "9850x3d", "270k", "ultra 9 285"))
+                # Must actually be the PC (either exact MPN match or matching brand + target spec)
+                if not (has_mpn or (has_pc_brand and has_pc_spec)):
+                    continue
+                # Reject obvious wrong-GPU configs Google Shopping sometimes substitutes
+                if any(wrong in raw_low for wrong in ("5060", "5080", "5090", "4060", "4070", "4080", "4090", "9070")):
+                    continue
+                if "5070" in raw_low and "5070 ti" not in raw_low and "5070ti" not in raw_low:
                     continue
 
                 price_val = item.get("extracted_price")
@@ -1057,10 +1080,6 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
                         price_val = None
                 # Only keep genuine price-match candidates strictly cheaper than B&H (and realistic >= $1,500)
                 if not price_val or price_val < 1500 or price_val >= bh_price - 10:
-                    continue
-
-                link = str(item.get("link") or item.get("product_link") or "").strip()
-                if not link:
                     continue
 
                 extensions = item.get("extensions") or []
