@@ -55,7 +55,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git reset --soft origin/main
           git add data/deals.json data/history.json data/notified.json data/serpapi_state.json || true
           git diff --staged --quiet || git commit -m "chore: update gaming PC deals (Mac runner) [skip ci]"
-          git pull --rebase || true
-          git push
+          git push origin HEAD:main
