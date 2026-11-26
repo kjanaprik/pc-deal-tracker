@@ -2,6 +2,12 @@
   "watched_ids": [],
   "rules": [
     {
+      "name": "RTX 5060 Ti 16GB Deal Alert",
+      "gpu": "RTX 5060 Ti 16GB",
+      "max_landed_isk": 310000,
+      "only_on_sale": false
+    },
+    {
       "name": "RTX 5070 Ti 16GB Deal Alert",
       "gpu": "RTX 5070 Ti 16GB",
       "max_landed_isk": 420000,
