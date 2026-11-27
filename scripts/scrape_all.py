@@ -10,9 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from scrapers.base import fetch_fx_rates
-from scrapers.europe import scrape_all_europe
-from scrapers.iceland import scrape_all_iceland
-from scrapers.north_america import scrape_all_north_america
+from scrapers.north_america import scrape_bh_pricematch_targets
 
 DATA_DIR = ROOT / "data"
 DEALS_PATH = DATA_DIR / "deals.json"
@@ -33,12 +31,10 @@ def main() -> None:
     now_iso = datetime.now(timezone.utc).isoformat()
     fx_rates = fetch_fx_rates()
 
-    iceland_prods, iceland_res = scrape_all_iceland(fx_rates)
-    europe_prods, europe_res = scrape_all_europe(fx_rates)
-    na_prods, na_res = scrape_all_north_america(fx_rates)
-
-    all_products = iceland_prods + europe_prods + na_prods
-    all_results = iceland_res + europe_res + na_res
+    # Post-purchase mode: monitor ONLY SLC10220CPGV22 on B&H Photo + authorized US competitors
+    pm_prods, pm_res = scrape_bh_pricematch_targets(fx_rates)
+    all_products = pm_prods
+    all_results = [pm_res]
 
     # Load previous deals & history
     prev_deals_data = load_json(DEALS_PATH, {"products": []})

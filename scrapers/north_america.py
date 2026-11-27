@@ -999,19 +999,9 @@ def scrape_reddit_prebuilts(fx_rates: dict[str, float]) -> tuple[list[Product], 
 
 BH_PRICEMATCH_TARGETS = [
     {
-        "mpn": "SLC11020CPGV4",
-        "bh_price": 2749.99,
-        "gpu": "RTX 5070 Ti 16GB",
-        "specs": "CyberPowerPC Gamer Supreme (Ryzen 7 9800X3D, 32GB DDR5, 2TB NVMe, RTX 5070 Ti 16GB)",
-        "required_groups": [
-            ("cyberpower", "gamer supreme"),
-            ("9800x3d",),
-            ("5070 ti", "5070ti"),
-        ],
-        "forbidden": ("7800x3d", "9850x3d", "9950x3d", "5060", "5080", "5090", "4070", "4080", "9070"),
-    },
-    {
         "mpn": "SLC10220CPGV22",
+        "bh_sku": "CYS220CPGV22",
+        "bh_url": "https://www.bhphotovideo.com/c/product/1969872-REG/cyberpowerpc_slc10220cpgv22_gamer_supreme_desktop_computer.html",
         "bh_price": 2599.99,
         "gpu": "RTX 5070 Ti 16GB",
         "specs": "CyberPowerPC Gamer Supreme (Core Ultra 7 270K Plus, 32GB DDR5, 2TB NVMe, RTX 5070 Ti 16GB)",
@@ -1020,31 +1010,7 @@ BH_PRICEMATCH_TARGETS = [
             ("270k",),
             ("5070 ti", "5070ti"),
         ],
-        "forbidden": ("265", "285", "9800x3d", "5060", "5080", "5090", "4070", "4080", "9070"),
-    },
-    {
-        "mpn": "DACT1250-9216BLU-PUS",
-        "bh_price": 2799.00,
-        "gpu": "RTX 5070 Ti 16GB",
-        "specs": "Dell Alienware Aurora (Core Ultra 9 285, 32GB DDR5, 1TB NVMe, RTX 5070 Ti 16GB)",
-        "required_groups": [
-            ("alienware", "aurora"),
-            ("ultra 9", "285"),
-            ("5070 ti", "5070ti"),
-        ],
-        "forbidden": ("ultra 7", "ultra 5", "265", "245", "5060", "5080", "5090", "4070", "4080", "9070", "16gb"),
-    },
-    {
-        "mpn": "SLCAI10600CPG",
-        "bh_price": 3079.99,
-        "gpu": "RTX 5070 Ti 16GB",
-        "specs": "CyberPowerPC Gamer Supreme (Ryzen 7 9850X3D, 32GB DDR5, 2TB NVMe, RTX 5070 Ti 16GB)",
-        "required_groups": [
-            ("cyberpower", "gamer supreme"),
-            ("9850x3d",),
-            ("5070 ti", "5070ti"),
-        ],
-        "forbidden": ("7800x3d", "9800x3d", "5060", "5080", "5090", "4070", "4080", "9070"),
+        "forbidden": ("265", "285", "9800x3d", "9850x3d", "5060", "5080", "5090", "4070", "4080", "9070"),
     },
 ]
 
@@ -1122,8 +1088,8 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
     now = datetime.now(timezone.utc)
     now_ts = now.timestamp()
     force = os.getenv("FORCE_SERPAPI", "").strip().lower() in ("1", "true", "yes")
-    is_bf_window = now.month == 11 and 26 <= now.day <= 30
-    interval_hours = 6.0 if is_bf_window else 12.0
+    is_bf_window = (now.month == 11 and now.day >= 26) or (now.month == 12 and now.day <= 2)
+    interval_hours = 3.5 if is_bf_window else 5.5
 
     state = _load_serpapi_state()
     last_ts = float(state.get("bh_pm_last_run_ts", 0.0) or 0.0)
@@ -1136,7 +1102,7 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
             ships_to_iceland="Direct",
             status="ok",
             count=0,
-            error=f"Price-match cooldown ({remaining:.1f}h until next competitor scan)",
+            error=f"Price-protection cooldown ({remaining:.1f}h until next SLC10220CPGV22 scan)",
             duration_ms=int((time.monotonic() - t0) * 1000),
         )
 
@@ -1145,6 +1111,7 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
         for target in BH_PRICEMATCH_TARGETS:
             mpn = target["mpn"]
             bh_price = float(target["bh_price"])
+            bh_url = str(target.get("bh_url") or "")
             r = requests.get(
                 "https://serpapi.com/search.json",
                 params={
@@ -1165,9 +1132,12 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
 
             results_list = data.get("shopping_results", [])
             matched = 0
+            bh_seen_price: Optional[float] = None
             for item in results_list:
                 source = str(item.get("source") or "").strip()
-                if not _is_bh_matchable_source(source):
+                src_low = source.lower()
+                is_bh_self = "b&h" in src_low or "bhphotovideo" in src_low
+                if not is_bh_self and not _is_bh_matchable_source(source):
                     continue
                 if item.get("second_hand_condition"):
                     continue
@@ -1188,8 +1158,14 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
                         price_val = float(price_val)
                     except (TypeError, ValueError):
                         price_val = None
-                # Only keep genuine price-match candidates strictly cheaper than B&H (and realistic >= $1,500)
-                if not price_val or price_val < 1500 or price_val >= bh_price - 10:
+                if not price_val or price_val < 1500:
+                    continue
+
+                if is_bh_self:
+                    bh_seen_price = price_val if bh_seen_price is None else min(bh_seen_price, price_val)
+
+                # Only alert when strictly cheaper than your $2,599.99 purchase price (at least $10 savings)
+                if price_val >= bh_price - 10:
                     continue
 
                 extensions = item.get("extensions") or []
@@ -1199,13 +1175,19 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
                     continue
 
                 savings = round(bh_price - price_val, 2)
-                src_low = source.lower()
-                # Show the actual competitor listing title so you can verify exact model before clicking
-                title = f"[PM vs B&H -${savings:,.0f}] {mpn} @ {source} — {raw_title}"
+                if is_bh_self:
+                    title = f"[B&H PRICE DROP -${savings:,.0f}] {mpn} now ${price_val:,.2f} @ B&H Photo — {raw_title}"
+                    out_url = bh_url or link
+                    note = f"B&H Photo dropped {mpn} from your ${bh_price:,.2f} purchase price to ${price_val:,.2f} (-${savings:,.2f}) — contact B&H for a price-adjustment refund!"
+                else:
+                    title = f"[PM vs B&H -${savings:,.0f}] {mpn} @ {source} — {raw_title}"
+                    out_url = link
+                    note = f"Exact model {mpn} cheaper at {source} (${price_val:,.2f} vs your B&H ${bh_price:,.2f}) — request B&H post-purchase price match refund!"
+
                 prod = _build_na_product(
                     store=store,
                     title=title,
-                    url=link,
+                    url=out_url,
                     price_usd=price_val,
                     fx_rates=fx_rates,
                     ships_to_iceland="Direct",
@@ -1213,14 +1195,15 @@ def scrape_bh_pricematch_targets(fx_rates: dict[str, float]) -> tuple[list[Produ
                     original_price_usd=bh_price,
                     description=f"Desktop PC {target['specs']} {raw_title} {ext_text}",
                     in_stock=True,
-                    notes=f"Exact B&H MFR {mpn} cheaper at {source} (${price_val:,.2f} vs B&H ${bh_price:,.2f}) — verify in stock & request B&H Price Match!",
+                    notes=note,
                 )
                 if prod:
                     prod.id = make_product_id(store, f"https://bh-pm.local/{mpn}/{src_low}")
                     products[prod.id] = prod
                     matched += 1
 
-            print(f"[B&H PM Monitor] mpn={mpn} (B&H=${bh_price:,.2f}) -> total={len(results_list)}, verified_matches={matched}")
+            bh_str = f"${bh_seen_price:,.2f}" if bh_seen_price is not None else "not returned"
+            print(f"[B&H Price Protection] mpn={mpn} (paid=${bh_price:,.2f}, B&H now={bh_str}) -> total={len(results_list)}, drops_or_pm={matched}")
 
         state["bh_pm_last_run_ts"] = now_ts
         state["bh_pm_last_run_iso"] = now.isoformat()

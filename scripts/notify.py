@@ -89,7 +89,10 @@ def find_alerts(deals: dict, watchlist: dict, notified: dict) -> list[dict]:
         if p.get("store") in ("r/buildapcsales", "r/Prebuilts"):
             reasons.append(f"New {p['store']} Prebuilt deal")
         elif p.get("store") == "B&H Price Match":
-            reasons.append("Cheaper competitor found for exact B&H Photo MFR model!")
+            if "[B&H PRICE DROP" in str(p.get("title") or ""):
+                reasons.append("B&H Photo dropped SLC10220CPGV22 below your $2,599.99 purchase price — claim refund!")
+            else:
+                reasons.append("Cheaper authorized US vendor found for SLC10220CPGV22 — request B&H price-match refund!")
 
         if not reasons:
             continue

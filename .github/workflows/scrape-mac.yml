@@ -1,9 +1,6 @@
-name: Scrape Residential IP Stores (Mac Office Hours)
+name: Scrape Residential IP Stores (Paused — Manual Only)
 
 on:
-  schedule:
-    # Mon-Fri at 10:00 and 15:00 UTC while your work Mac is awake (refreshes Amazon.com / Amazon.de)
-    - cron: "0 10,15 * * 1-5"
   workflow_dispatch:
 
 permissions:

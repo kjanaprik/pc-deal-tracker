@@ -1,28 +1,9 @@
 {
   "watched_ids": [],
-  "rules": [
-    {
-      "name": "RTX 5060 Ti 16GB Deal Alert",
-      "gpu": "RTX 5060 Ti 16GB",
-      "max_landed_isk": 310000,
-      "only_on_sale": false
-    },
-    {
-      "name": "RTX 5070 Ti 16GB Deal Alert",
-      "gpu": "RTX 5070 Ti 16GB",
-      "max_landed_isk": 420000,
-      "only_on_sale": false
-    },
-    {
-      "name": "RTX 5080 16GB Black Friday Drop",
-      "gpu": "RTX 5080 16GB",
-      "max_landed_isk": 550000,
-      "only_on_sale": true
-    }
-  ],
-  "notify_on_any_watched_sale": true,
-  "notify_on_any_price_drop": true,
-  "max_store_price_usd": 2800,
+  "rules": [],
+  "notify_on_any_watched_sale": false,
+  "notify_on_any_price_drop": false,
+  "max_store_price_usd": 2590,
   "global_min_drop_pct": 5.0,
   "global_min_drop_isk": 15000,
   "min_price_drop_pct": 3.0
